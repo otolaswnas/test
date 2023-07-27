@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Zdefiniuj ścieżkę do pliku
+file="plik.txt"
+
+# Przeczytaj plik linia po linii
+while read -r col1 col2
+do
+    # Wyświetl wartości zmiennych
+    echo "$col1 $col2"
+done < "$file"
