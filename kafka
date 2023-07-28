@@ -28,3 +28,18 @@
         find /var/log/kafka -name "*.log" -o -name "*.log-????-??-??-??" -mtime +14 -exec rm {} \;
     endscript
 }
+
+
+
+/var/log/kafka/kafkaServer.out /var/log/kafka/kafkaServer-gc.log {
+    daily
+    rotate 14
+    delaycompress
+    missingok
+    notifempty
+    compress
+    postrotate
+        find /var/log/kafka -name "kafkaServer*.gz" -mtime +14 -exec rm {} \;
+        find /var/log/kafka -name "kafkaServer*.log.*" ! -name "*.gz" -mtime +14 -exec rm {} \;
+    endscript
+}
