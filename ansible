@@ -1,0 +1,27 @@
+- hosts: all
+  tasks:
+    - name: Zrób kopię zapasową pliku
+      copy:
+        src: /path/to/file
+        dest: /path/to/backup/file.bak
+        remote_src: yes
+
+    - name: Nadpisz plik nową zawartością
+      copy:
+        src: /path/to/local/file
+        dest: /path/to/file
+
+    - name: Zrestartuj usługę
+      service:
+        name: myservice
+        state: restarted
+
+
+
+[mygroup]
+host1 ansible_host=192.168.1.100 ansible_user=myuser ansible_ssh_private_key_file=/path/to/keyfile
+host2 ansible_host=192.168.1.101 ansible_user=myuser ansible_ssh_private_key_file=/path/to/keyfile
+
+
+
+ansible-playbook -i /path/to/inventory myplaybook.yml
