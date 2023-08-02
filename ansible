@@ -1,3 +1,39 @@
+Utwórz katalog templates w swoim projekcie Ansible.
+W katalogu templates utwórz plik szablonu o nazwie ldap.toml.j2.
+W pliku szablonu ldap.toml.j2 dodaj treść pliku konfiguracyjnego ldap.toml, używając zmiennych Jinja2 tam, gdzie chcesz wstawić dynamiczne wartości. Na przykład:
+# Plik szablonu ldap.toml.j2
+[[servers]]
+host = "{{ ldap_host }}"
+port = {{ ldap_port }}
+use_ssl = {{ ldap_use_ssl }}
+bind_dn = "{{ ldap_bind_dn }}"
+bind_password = "{{ ldap_bind_password }}"
+search_filter = "{{ ldap_search_filter }}"
+search_base_dns = ["{{ ldap_search_base_dns }}"]
+
+[[servers.group_mappings]]
+group_dn = "{{ ldap_group_dn }}"
+org_role = "{{ ldap_org_role }}"
+org_id = {{ ldap_org_id }}
+Kopiuj
+W swoim playbooku Ansible dodaj zadanie, które użyje modułu template, aby wygenerować plik konfiguracyjny ldap.toml na podstawie szablonu ldap.toml.j2. Na przykład:
+- name: Generate Grafana ldap.toml config file
+  template:
+    src: templates/ldap.toml.j2
+    dest: /etc/grafana/ldap.toml
+  vars:
+    ldap_host: "ldap.example.com"
+    ldap_port: 636
+    ldap_use_ssl: true
+    ldap_bind_dn: "cn=admin,dc=example,dc=com"
+    ldap_bind_password: "secret"
+    ldap_search_filter: "(cn=%s)"
+    ldap_search_base_dns: "ou=users,dc=example,dc=com"
+    ldap_group_dn: "cn=admins,ou=groups,dc=example,dc=com"
+    ldap_org_role: "Admin"
+    ldap_org_id: 1
+
+------------------------------------------------------------------------
 - hosts: all
   vars:
     file_path: /path/to/file
