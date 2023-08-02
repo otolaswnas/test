@@ -1,3 +1,21 @@
+W swoim playbooku Ansible dodaj zadanie, które użyje modułu blockinfile, aby dodać nową sekcję servers.group_mappings do pliku ldap.toml. Na przykład:
+- name: Add new group mapping to Grafana ldap.toml config file
+  blockinfile:
+    path: /etc/grafana/ldap.toml
+    marker: "# {mark} ANSIBLE MANAGED BLOCK"
+    block: |
+      [[servers.group_mappings]]
+      group_dn = "{{ ldap_group_dn }}"
+      org_role = "{{ ldap_org_role }}"
+      org_id = {{ ldap_org_id }}
+  vars:
+    ldap_group_dn: "{{ new_ldap_group_dn }}"
+    ldap_org_role: "{{ new_ldap_org_role }}"
+    ldap_org_id: "{{ new_ldap_org_id }}"
+Kopiuj
+W tym przykładzie używamy zmiennych new_ldap_group_dn, new_ldap_org_role i new_ldap_org_id, aby przekazać wartości dla nowej sekcji servers.group_mappings. Możesz zdefiniować te zmienne w playbooku lub przekazać je jako argumenty podczas uruchamiania playbooka.
+
+------------------------------------------------------------
 Utwórz katalog templates w swoim projekcie Ansible.
 W katalogu templates utwórz plik szablonu o nazwie ldap.toml.j2.
 W pliku szablonu ldap.toml.j2 dodaj treść pliku konfiguracyjnego ldap.toml, używając zmiennych Jinja2 tam, gdzie chcesz wstawić dynamiczne wartości. Na przykład:
