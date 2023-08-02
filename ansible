@@ -1,4 +1,29 @@
 - hosts: all
+  vars:
+    file_path: /path/to/file
+    backup_path: /path/to/backup/file.bak
+    local_file_path: /path/to/local/file
+    service_name: myservice
+  tasks:
+    - name: Zrób kopię zapasową pliku
+      copy:
+        src: "{{ file_path }}"
+        dest: "{{ backup_path }}"
+        remote_src: yes
+
+    - name: Nadpisz plik nową zawartością
+      copy:
+        src: "{{ local_file_path }}"
+        dest: "{{ file_path }}"
+
+    - name: Zrestartuj usługę
+      service:
+        name: "{{ service_name }}"
+        state: restarted
+
+
+---------------------------------------------------------------------------
+- hosts: all
   tasks:
     - name: Zrób kopię zapasową pliku
       copy:
