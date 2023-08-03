@@ -1,3 +1,33 @@
+Aby sprawdzić ścieżkę w Active Directory dla podanej nazwy grupy za pomocą Ansible, możesz użyć modułu community.windows.win_domain_group. Oto przykład zadania, które pokazuje, jak to zrobić:
+
+- name: Pobierz informacje o grupie
+  community.windows.win_domain_group:
+    name: NazwaGrupy
+  register: group_info
+
+- name: Wyświetl ścieżkę grupy
+  debug:
+    msg: "{{ group_info.group.distinguished_name }}"
+Kopiuj
+W powyższym przykładzie, używamy modułu community.windows.win_domain_group z parametrem name ustawionym na nazwę grupy, którą chcemy sprawdzić. Następnie, rejestrujemy wynik zadania w zmiennej group_info. Na końcu, używamy modułu debug, aby wyświetlić wartość atrybutu distinguished_name dla grupy, który zawiera jej ścieżkę w Active Directory.
+
+Aby skonfigurować parametry połączenia z Active Directory, musisz podać odpowiednie wartości dla parametrów domain_username, domain_password i domain_server w module community.windows.win_domain_group. Oto przykład zadania, które pokazuje, jak to zrobić:
+
+- name: Pobierz informacje o grupie
+  community.windows.win_domain_group:
+    name: NazwaGrupy
+    domain_username: administrator
+    domain_password: hasło
+    domain_server: dc1.example.com
+  register: group_info
+
+- name: Wyświetl ścieżkę grupy
+  debug:
+    msg: "{{ group_info.group.distinguished_name }}"
+Kopiuj
+W powyższym przykładzie, podajemy wartości dla parametrów domain_username, domain_password i domain_server, aby skonfigurować połączenie z Active Directory. Następnie, reszta zadania działa tak samo jak w poprzednim przykładzie.
+
+------------------------------------------------------------------------------------------
 [servers.group_mappings]
 {% for mapping in group_mappings %}
 {{ mapping.group_dn }} = { org_role = "{{ mapping.org_role }}", org_id = {{ mapping.org_id }} }
