@@ -1,3 +1,9 @@
+[servers.group_mappings]
+{% for mapping in group_mappings %}
+{{ mapping.group_dn }} = { org_role = "{{ mapping.org_role }}", org_id = {{ mapping.org_id }} }
+{% endfor %}
+
+------
 W swoim playbooku Ansible dodaj zadanie, które użyje modułu blockinfile, aby dodać nową sekcję servers.group_mappings do pliku ldap.toml. Na przykład:
 - name: Add new group mapping to Grafana ldap.toml config file
   blockinfile:
