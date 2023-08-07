@@ -1,3 +1,13 @@
+#!/bin/bash
+
+HOST='http://localhost:3000'
+KEY="<add-valid-key>"
+
+# Iterate through dashboards using the current API Key
+for dashboard_uid in $(curl -sS -H "Authorization: Bearer $KEY" $HOST/api/search?query=& | jq -r '.[] | select(.type | contains("dash-db")) | .uid'); do
+    echo $dashboard_uid
+done
+################
 Aby sprawdzić ścieżkę w Active Directory dla podanej nazwy grupy za pomocą Ansible, możesz użyć modułu community.windows.win_domain_group. Oto przykład zadania, które pokazuje, jak to zrobić:
 
 - name: Pobierz informacje o grupie
