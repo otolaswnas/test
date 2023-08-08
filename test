@@ -17,6 +17,26 @@ GET /_search
     }
   }
 }
+----------------------
+GET /_search
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "wildcard": {
+            "field1": "*value1*"
+          }
+        },
+        {
+          "wildcard": {
+            "field2": "*value2*"
+          }
+        }
+      ]
+    }
+  }
+}
 
 
 
