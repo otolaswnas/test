@@ -1,3 +1,26 @@
+GET /_search
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "wildcard": {
+            "field1": "*value1*"
+          }
+        },
+        {
+          "wildcard": {
+            "field2": "*value2*"
+          }
+        }
+      ]
+    }
+  }
+}
+
+
+
+####################################################################33
 #!/bin/bash
 
 file1="file1.txt"
