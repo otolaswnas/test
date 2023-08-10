@@ -8,6 +8,29 @@
           }
         },
         {
+          "match": {
+            "field2": {
+              "query": "value2",
+              "fuzziness": "AUTO"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+
+---------------------
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "term": {
+            "field1": "value1"
+          }
+        },
+        {
           "wildcard": {
             "field2": "*value2*"
           }
