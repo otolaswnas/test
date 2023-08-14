@@ -1,3 +1,15 @@
+ifArray = [[["pole", "-eq", "wartość", "and"],
+            ["pole", "-eq", "wartość", "and"],
+            ["pole", "-eq", "wartość"]],
+           [["pole", "-eq", "wartość", "and"],
+            ["pole", "-eq", "wartość"]],
+           [["pole", "-eq", "wartość"]]]
+
+for i in range(len(ifArray)):
+    for j in range(len(ifArray[i])):
+        for k in range(len(ifArray[i][j])):
+            print(f"ifArray[{i}][{j}][{k}] = {ifArray[i][j][k]}")
+------------------------
 declare -A my_array
 my_array=(["key1:subkey1"]="value1" ["key1:subkey2"]="value2" ["key2:subkey1"]="value3")
 
