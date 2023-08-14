@@ -1,3 +1,15 @@
+declare -A my_array
+my_array=(["key1:subkey1"]="value1" ["key1:subkey2"]="value2" ["key2:subkey1"]="value3")
+
+# Iteracja po kluczach tablicy asocjacyjnej za pomocą pętli for
+for key in "${!my_array[@]}"
+do
+    # Podział klucza na części
+    IFS=':' read -ra key_parts <<< "$key"
+    # Wypisanie klucza i wartości
+    echo "${key_parts[0]}, ${key_parts[1]}: ${my_array[$key]}"
+done
+-------
 #!/bin/bash
 
 declare -A ifArray
