@@ -1,3 +1,31 @@
+declare -A ifArray
+
+ifArray[0,0,0]="pole"
+ifArray[0,0,1]="-eq"
+ifArray[0,0,2]="wartość"
+ifArray[0,0,3]="and"
+
+ifArray[0,1,0]="pole"
+ifArray[0,1,1]="-eq"
+ifArray[0,1,2]="wartość"
+ifArray[0,1,3]="and"
+
+ifArray[0,2,0]="pole"
+ifArray[0,2,1]="-eq"
+ifArray[0,2,2]="wartość"
+ifArray[0,2,3]=""
+
+ifCondition="if [ "
+for ((i=0;i<${#ifArray[@]};i++)); do
+    ifCondition+="${ifArray[$i,$i,$i]} ${ifArray[$i,$i,$i+1]} ${ifArray[$i,$i,$i+2]}"
+    if [[ "${ifArray[$i,$i,$i+3]}" != "" ]]; then
+        ifCondition+=" ] ${ifArray[$i,$i,$i+3]} [ "
+    fi
+done
+ifCondition+=" ]; then echo 'Warunek spełniony'; else echo 'Warunek niespełniony'; fi"
+
+eval $ifCondition
+---------------
 #!/bin/bash
 
 matchingField[0][0]="pole"
