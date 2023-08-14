@@ -1,3 +1,62 @@
+#!/bin/bash
+
+matchingField[0][0]="pole"
+condition[0][0]="-eq"
+pattern[0][0]="wartość"
+rule[0][0]="and"
+matchingField[0][1]="pole"
+condition[0][1]="-eq"
+pattern[0][1]="wartość"
+rule[0][1]="and"
+matchingField[0][2]="pole"
+condition[0][2]="-eq"
+pattern[0][2]="wartość"
+rule[0][2]=""
+
+matchingField[1][0]="pole"
+condition[1][0]="-eq"
+pattern[1][0]="wartość"
+rule[1][0]="and"
+matchingField[1][1]="pole"
+condition[1][1]="-eq"
+pattern[1][1]="wartość"
+rule[1][1]="and"
+matchingField[1][2]="pole"
+condition[1][2]="-eq"
+pattern[1][2]="wartość"
+rule[1][2]=""
+
+matchingField[2][0]="pole"
+condition[2][0]="-eq"
+pattern[2][0]="wartość"
+rule[2][0]="and"
+matchingField[2][1]="pole"
+condition[2][1]="-eq"
+pattern[2][1]="wartość"
+rule[2][1]=""
+
+matchingField[3][0]="pole"
+condition[3][0]="-eq"
+pattern[3][0]="wartość"
+rule[3][0]=""
+
+
+ifCondition="if [ "
+for ((i=0;i<${#matchingField[@]};i++)); do
+    for ((j=0;j<${#matchingField[$i]};j++)); do
+        ifCondition+="${matchingField[$i][$j]} ${condition[$i][$j]} ${pattern[$i][$j]}"
+        if [[ "${rule[$i][$j]}" != "" ]]; then
+            ifCondition+=" ] ${rule[$i][$j]} [ "
+        fi
+    done
+    if [[ $i -lt $((${#matchingField[@]} - 1)) ]]; then
+        ifCondition+=" ] || [ "
+    fi
+done
+ifCondition+=" ]; then echo 'Warunek spełniony'; else echo 'Warunek niespełniony'; fi"
+
+eval $ifCondition
+--------------------------------------
 {
   "query": {
     "bool": {
