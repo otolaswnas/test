@@ -1,3 +1,24 @@
+dc1_array = [["c7.cluster.pl", "c8.cluster.pl"]]
+dc2_array = [["d7.cluster.pl"]]
+
+def check_element(element):
+    # Spłaszczanie list wewnętrznych
+    dc1_flat = [item for sublist in dc1_array for item in sublist]
+    dc2_flat = [item for sublist in dc2_array for item in sublist]
+
+    if element in dc1_flat:
+        print(f"{element} znajduje się w dc1_array")
+    elif element in dc2_flat:
+        print(f"{element} znajduje się w dc2_array")
+    else:
+        print(f"{element} nie znajduje się ani w dc1_array, ani w dc2_array")
+
+# Przykładowe użycie funkcji
+check_element("c7.cluster.pl")
+check_element("d7.cluster.pl")
+check_element("c9.cluster.pl")
+
+------------------------
 CLUSTER_ARRAY = [["c7.cluster.pl", "c8.cluster.pl"], ["d7.cluster.pl"]]
 dc1_array = [["c7.cluster.pl", "c8.cluster.pl"]]
 dc2_array = [["d7.cluster.pl"]]
