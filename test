@@ -1,3 +1,22 @@
+CLUSTER_ARRAY = [["c7.cluster.pl", "c8.cluster.pl"], ["d7.cluster.pl"]]
+dc1_array = [["c7.cluster.pl", "c8.cluster.pl"]]
+dc2_array = [["d7.cluster.pl"]]
+
+# Spłaszczanie list wewnętrznych
+dc1_flat = [item for sublist in dc1_array for item in sublist]
+dc2_flat = [item for sublist in dc2_array for item in sublist]
+
+# Iteracja po liście list
+for cluster in CLUSTER_ARRAY:
+    for server in cluster:
+        if server in dc1_flat:
+            print(f"{server} znajduje się w dc1_array")
+        elif server in dc2_flat:
+            print(f"{server} znajduje się w dc2_array")
+        else:
+            print(f"{server} nie znajduje się ani w dc1_array, ani w dc2_array")
+
+------------------------------------------------------------------------------
 job1:
   variables:
     CLUSTER_LIST: '[["c7.cluster.pl", "c8.cluster.pl"], ["d7.cluster.pl"]]'
