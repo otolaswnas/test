@@ -1,3 +1,20 @@
+job1:
+  variables:
+    CLUSTER_LIST: '[["c7.cluster.pl", "c8.cluster.pl"], ["d7.cluster.pl"]]'
+  script:
+    - python3 my_script.py
+
+
+import os
+import json
+
+cluster_list = json.loads(os.environ['CLUSTER_LIST'])
+
+for cluster in cluster_list:
+    for server in cluster:
+        print(server)
+
+--------------------------------------------------------------------
 ifArray = [[["pole", "-eq", "wartość", "and"],
             ["pole", "-eq", "wartość", "and"],
             ["pole", "-eq", "wartość"]],
