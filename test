@@ -1,4 +1,18 @@
- - FILES=$(echo '['$(ls -1 /example/folder | sed 's/^/"/;s/$/"/' | paste -sd, -)']')
+    - name: Zarchiwizuj istniejące pliki
+      copy:
+        src: "/lokalizacja/sprawdz/{{ item.item }}"
+        dest: "/backup/{{ item.item }}.bak"
+        remote_src: yes
+      when: item.stat.exists
+      loop: "{{ files_stat.results }}"
+
+    - name: Skopiuj nowe pliki do katalogu /lokalizacja/sprawdz
+      copy:
+        src: "/example/folder/{{ item }}"
+        dest: "/lokalizacja/sprawdz/{{ item }}"
+      loop: "{{ files_list }}"
+---------------------------------------
+- FILES=$(echo '['$(ls -1 /example/folder | sed 's/^/"/;s/$/"/' | paste -sd, -)']')
 --------------------
 dc1_array = [["c7.cluster.pl", "c8.cluster.pl"]]
 dc2_array = [["d7.cluster.pl"]]
