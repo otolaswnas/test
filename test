@@ -1,4 +1,9 @@
-    - name: Zarchiwizuj istniejące pliki
+    - name: Utwórz katalog jeśli nie istnieje
+      file:
+        path: /ścieżka/do/katalogu
+        state: directory
+-------------------------------
+- name: Zarchiwizuj istniejące pliki
       copy:
         src: "/lokalizacja/sprawdz/{{ item.item }}"
         dest: "/backup/{{ item.item }}.bak"
