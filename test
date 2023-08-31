@@ -1,3 +1,5 @@
+ - FILES=$(echo '['$(ls -1 /example/folder | sed 's/^/"/;s/$/"/' | paste -sd, -)']')
+--------------------
 dc1_array = [["c7.cluster.pl", "c8.cluster.pl"]]
 dc2_array = [["d7.cluster.pl"]]
 
