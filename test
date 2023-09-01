@@ -1,4 +1,12 @@
-    - name: Utwórz katalog jeśli nie istnieje
+script:
+  - if [[ $fileList == *"plik1"* ]]; then
+      ls -la;
+    elif [[ $fileList == *"plik2"* ]]; then
+      ls -ltr;
+    fi
+
+----------------------------------------
+- name: Utwórz katalog jeśli nie istnieje
       file:
         path: /ścieżka/do/katalogu
         state: directory
