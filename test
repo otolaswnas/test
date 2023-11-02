@@ -1,3 +1,28 @@
+Aby dodać nowy indeks do `indices names` dla danej roli w Elasticsearch, możesz najpierw pobrać aktualną listę indeksów, a następnie dodać nowy indeks do tej listy i zaktualizować rolę za pomocą polecenia `curl`. Poniżej znajduje się przykładowy skrypt bash, który wykonuje te zadania:
+
+```bash
+# Wykonaj polecenie curl i zapisz wynik do zmiennej
+rola="twoja_rola"
+wynik=$(curl -X GET "localhost:9200/_security/role/$rola")
+
+# Użyj jq, aby przetworzyć wynik i uzyskać dostęp do indices names
+indices_names=$(echo "$wynik" | jq -r ".[\"$rola\"].indices")
+
+# Dodaj nowy indeks do listy
+nowy_indeks="twoj_nowy_indeks"
+zmienione_indices_names=$(echo "$indices_names" | jq ". += [\"$nowy_indeks\"]")
+
+# Zaktualizuj rolę za pomocą zmienionej listy indeksów
+zmieniona_rola=$(echo "$wynik" | jq ".[\"$rola\"].indices = $zmienione_indices_names")
+curl -X PUT "localhost:9200/_security/role/$rola" -H 'Content-Type: application/json' -d"$zmieniona_rola"
+```
+
+W tym skrypcie, `. += [\"$nowy_indeks\"]` to wyrażenie `jq`, które dodaje nowy indeks do listy indeksów. Następnie `.indices = $zmienione_indices_names` aktualizuje listę indeksów dla danej roli.
+
+Pamiętaj, że musisz zastąpić `"localhost:9200"`, `"twoja_rola"` i `"twoj_nowy_indeks"` odpowiednimi wartościami. Jeśli Twój klaster Elasticsearch jest zabezpieczony, musisz również dostarczyć odpowiednie dane uwierzytelniające z żądaniem `curl`.
+
+Mam nadzieję, że to pomoże! Jeśli masz jakiekolwiek pytania lub potrzebujesz dalszej pomocy, daj mi znać! 😊
+--------------------------------------------------------------
 # Wykonaj polecenie curl i zapisz wynik do zmiennej
 wynik=$(curl -X GET "localhost:9200/_security/role" | jq -r 'keys | .[]')
 
