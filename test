@@ -1,4 +1,17 @@
+# Wykonaj polecenie curl i zapisz wynik do zmiennej
+wynik=$(curl -X GET "localhost:9200/_security/role" | jq -r 'keys[]')
 
+# Użyj IFS (Internal Field Separator) do podziału wyniku na tablicę
+IFS=$'\n' read -r -a tablica <<< "$wynik"
+
+# Wyświetl każdy element tablicy
+for rola in "${tablica[@]}"
+do
+   echo "$rola"
+done
+
+
+------------------------------------
 # Wykonaj polecenie curl i zapisz wynik do zmiennej
 wynik=$(curl -s 'http://twojastrona.com')
 
