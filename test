@@ -1,4 +1,14 @@
 # Wykonaj polecenie curl i zapisz wynik do zmiennej
+wynik=$(curl -X GET "localhost:9200/_security/role" | jq -r 'keys | .[]')
+
+# Użyj pętli while do odczytywania wyników linia po linii
+echo "$wynik" | while read -r rola
+do
+   echo "$rola"
+done
+
+----------------------------------------------------
+# Wykonaj polecenie curl i zapisz wynik do zmiennej
 wynik=$(curl -X GET "localhost:9200/_security/role" | jq -r 'keys[]')
 
 # Użyj IFS (Internal Field Separator) do podziału wyniku na tablicę
