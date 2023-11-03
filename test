@@ -1,3 +1,6 @@
+curl -X GET "http://localhost:5601/api/saved_objects/_find?type=index-pattern&space_id=nazwa_space" -H 'kbn-xsrf: true'
+
+-----------------------------
 Aby dodać nowy indeks do `indices names` dla danej roli w Elasticsearch, możesz najpierw pobrać aktualną listę indeksów, a następnie dodać nowy indeks do tej listy i zaktualizować rolę za pomocą polecenia `curl`. Poniżej znajduje się przykładowy skrypt bash, który wykonuje te zadania:
 
 ```bash
