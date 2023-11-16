@@ -1,3 +1,71 @@
+Oto zmodyfikowane przykłady dla NGINX i jobów Prometheus, które uwzględniają podane przez Ciebie dane:
+
+**Konfiguracja NGINX:**
+
+```bash
+http {
+    upstream backend {
+        server 192.168.100.101;
+        server 192.168.100.102;
+    }
+
+    server {
+        listen 9091;
+        server_name app1;
+
+        location / {
+            proxy_pass http://192.168.100.201/metric;
+            auth_basic "Restricted Content";
+            auth_basic_user_file /etc/nginx/.htpasswd_app1;
+        }
+    }
+
+    server {
+        listen 9092;
+        server_name app2;
+
+        location / {
+            proxy_pass http://192.168.100.202/metric;
+            auth_basic "Restricted Content";
+            auth_basic_user_file /etc/nginx/.htpasswd_app2;
+        }
+    }
+}
+```
+
+**Konfiguracja jobów Prometheus:**
+
+```yaml
+scrape_configs:
+  - job_name: 'app1'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['192.168.100.201:9091']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: app1
+    basic_auth:
+      username: 'user1'
+      password: 'password1'
+
+  - job_name: 'app2'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['192.168.100.202:9092']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: app2
+    basic_auth:
+      username: 'user2'
+      password: 'password2'
+```
+
+W powyższych przykładach, `192.168.100.201:9091` i `192.168.100.202:9092` to adresy, z których Prometheus będzie zbierał metryki. Są one mapowane na `app1` i `app2` odpowiednio za pomocą `relabel_configs`. Autentykacja jest obsługiwana przez `basic_auth`, gdzie `username` i `password` to dane uwierzytelniające dla każdego joba.
+
+Pamiętaj, że powyższa konfiguracja jest tylko przykładem i może wymagać dostosowania do twojego konkretnego środowiska i wymagań.
+-----------------------------
 scrape_configs:
   - job_name: 'app1'
     scrape_interval: 5s
@@ -22,6 +90,45 @@ scrape_configs:
     basic_auth:
       username: 'user2'
       password: 'password2'
+
+
+
+
+Aby skonfigurować osobne organizacje dla `app1` i `app2` w Grafana, musisz najpierw utworzyć organizacje, a następnie dodać do nich odpowiednie źródła danych. Poniżej znajduje się przykładowy proces:
+
+1. **Utwórz organizacje**: Zaloguj się do Grafana jako administrator i przejdź do `Configuration > Server Admin > Organizations`. Kliknij `New Organization` i wprowadź nazwę organizacji (np. `app1` i `app2`).
+
+2. **Dodaj źródła danych**: Przejdź do `Configuration > Data Sources` i kliknij `Add data source`. Wybierz `Prometheus` jako typ źródła danych i wprowadź odpowiednie szczegóły, takie jak adres URL serwera Prometheus.
+
+Poniżej znajduje się przykładowa konfiguracja źródła danych dla `app1`:
+
+```yaml
+name: Prometheus-app1
+type: prometheus
+access: proxy
+url: http://192.168.100.101:9091
+basicAuth: true
+basicAuthUser: user1
+basicAuthPassword: password1
+```
+
+Podobnie, dla `app2`:
+
+```yaml
+name: Prometheus-app2
+type: prometheus
+access: proxy
+url: http://192.168.100.102:9092
+basicAuth: true
+basicAuthUser: user2
+basicAuthPassword: password2
+```
+
+Pamiętaj, że powyższa konfiguracja jest tylko przykładem i może wymagać dostosowania do twojego konkretnego środowiska i wymagań. Zawsze należy przestrzegać najlepszych praktyk bezpieczeństwa podczas konfigurowania autentykacji i upewnić się, że wszystkie hasła i dane uwierzytelniające są odpowiednio zabezpieczone.
+
+
+
+
 
 --------------------------------------
 http {
