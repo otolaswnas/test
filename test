@@ -1,3 +1,28 @@
+http {
+    server {
+        listen 9091;
+        server_name app1;
+
+        location / {
+            proxy_pass http://localhost:9091;
+            auth_basic "Restricted Content";
+            auth_basic_user_file /etc/nginx/.htpasswd_app1;
+        }
+    }
+
+    server {
+        listen 9092;
+        server_name app2;
+
+        location / {
+            proxy_pass http://localhost:9092;
+            auth_basic "Restricted Content";
+            auth_basic_user_file /etc/nginx/.htpasswd_app2;
+        }
+    }
+}
+
+-------------------------------------------------------
 https://www.elastic.co/guide/en/elasticsearch/reference/8.8/logging.html
 -------------------------------------------------------
 /var/log/elasticsearch/crlo-*audit*json.gz {
