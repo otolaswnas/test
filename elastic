@@ -1,3 +1,48 @@
+from elasticsearch import Elasticsearch, exceptions
+
+try:
+    es = Elasticsearch(
+        ['localhost', 'otherhost'],
+        http_auth=('user', 'secret'),
+        scheme="https",
+        port=443,
+        use_ssl=True,
+        verify_certs=True,
+        ca_certs='/sciezka/do/twojego/certyfikatu.pem'
+    )
+
+    # Sprawdź, czy serwer Elasticsearch jest dostępny
+    if not es.ping():
+        print("Nie można połączyć się z serwerem Elasticsearch!")
+        exit()
+
+    # Założenie polityki ILM
+    policy = {
+        "policy": {
+            "phases": {
+                "hot": {
+                    "actions": {
+                        "rollover": {
+                            "max_size": "25GB"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    es.ilm.put_lifecycle(name='my_policy', body=policy)
+
+except exceptions.ConnectionError:
+    print("Błąd połączenia z serwerem Elasticsearch.")
+except exceptions.RequestError:
+    print("Błąd żądania. Sprawdź swoje dane wejściowe.")
+except exceptions.TransportError:
+    print("Błąd transportu podczas komunikacji z serwerem Elasticsearch.")
+except Exception as e:
+    print(f"Napotkano nieoczekiwany błąd: {e}")
+
+------------------------------------------------------------
 import requests
 from requests.auth import HTTPBasicAuth
 
