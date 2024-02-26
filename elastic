@@ -1,0 +1,20 @@
+import requests
+
+# Adres URL hosta Kibana
+kibana_url = "http://localhost:5601"
+
+# Definicja przestrzeni
+space_definition = {
+    "id": "my_space",
+    "name": "My Space",
+    "description" : "This is my space"
+}
+
+# Tworzenie przestrzeni za pomocą API Kibana
+response = requests.post(f"{kibana_url}/api/spaces/space", json=space_definition)
+
+# Sprawdzenie odpowiedzi
+if response.status_code == 200:
+    print("Space created successfully")
+else:
+    print(f"Failed to create space: {response.content}")
