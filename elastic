@@ -1,3 +1,35 @@
+import requests
+from requests.auth import HTTPBasicAuth
+
+# Adres URL hosta Kibana
+kibana_url = "http://localhost:5601"
+
+# Definicja przestrzeni
+space_definition = {
+    "id": "my_space",
+    "name": "My Space",
+    "description" : "This is my space"
+}
+
+# Dane uwierzytelniające
+username = "your_username"
+password = "your_password"
+
+# Tworzenie przestrzeni za pomocą API Kibana
+response = requests.post(
+    f"{kibana_url}/api/spaces/space",
+    json=space_definition,
+    auth=HTTPBasicAuth(username, password)
+)
+
+# Sprawdzenie odpowiedzi
+if response.status_code == 200:
+    print("Space created successfully")
+else:
+    print(f"Failed to create space: {response.content}")
+
+
+-----------------------------------------------
 from elasticsearch import Elasticsearch
 from requests.auth import HTTPBasicAuth
 import requests
