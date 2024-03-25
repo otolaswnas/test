@@ -1,3 +1,14 @@
+
+processors:
+  - dissect:
+      tokenizer: '%{ts} %{+ts} %{tz}:%{device}:%{message}'
+      field: "message"
+      target_prefix: ""
+
+
+---------------------
+
+
 curl -XPUT localhost:9200/_cluster/settings -d '{
   "persistent": {
     "cluster.routing.allocation.disk.watermark.low": "90%",
