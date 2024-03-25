@@ -1,9 +1,19 @@
 
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /path/to/your/cisco-ios/logs/*.log
+
 processors:
   - dissect:
       tokenizer: '%{ts} %{+ts} %{tz}:%{device}:%{message}'
       field: "message"
       target_prefix: ""
+
+output.elasticsearch:
+  hosts: ["localhost:9200"]
+
 
 
 ---------------------
