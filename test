@@ -1,3 +1,20 @@
+#!/bin/bash
+
+# Deklaracja tablicy asocjacyjnej
+declare -A moja_tablica
+
+# Dodawanie wartości do tablicy
+moja_tablica["klucz1"]="wartosc1"
+moja_tablica["klucze12"]="wartosci12"
+moja_tablica["toKlucz"]="ToWartosc"
+moja_tablica["tata"]="rata"
+
+# Wyświetlanie wartości dla danego klucza
+for klucz in "${!moja_tablica[@]}"; do
+    wartosc="${moja_tablica[$klucz]}"
+    echo "Klucz: $klucz, Wartość: $wartosc"
+done
+##############################################################################################3
 Oto zmodyfikowane przykłady dla NGINX i jobów Prometheus, które uwzględniają podane przez Ciebie dane:
 
 **Konfiguracja NGINX:**
