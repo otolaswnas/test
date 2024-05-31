@@ -1,3 +1,92 @@
+
+<VirtualHost *:80>
+    ServerName your-server-name
+    DocumentRoot /var/www/html
+
+    # Włącz moduł statusu
+    <Location /server-status>
+        SetHandler server-status
+        Order Deny,Allow
+        Deny from all
+        Allow from localhost ip6-localhost
+        # Użyj SSLRequire do wymuszenia autoryzacji certyfikatem
+        SSLRequireSSL
+        SSLVerifyClient require
+        SSLVerifyDepth  10
+    </Location>
+
+    # Włącz eksport metryk w formacie prometheushowym
+    <Location /metrics>
+        SetHandler prometheus-metrics
+        Order Deny,Allow
+        Deny from all
+        Allow from localhost ip6-localhost
+        # Użyj SSLRequire do wymuszenia autoryzacji certyfikatem
+        SSLRequireSSL
+        SSLVerifyClient require
+        SSLVerifyDepth  10
+    </Location>
+
+    # Konfiguracja SSL
+    SSLEngine on
+    SSLCertificateFile "/path/to/your/certificate.pem"
+    SSLCertificateKeyFile "/path/to/your/private/key.pem"
+    SSLCACertificateFile "/path/to/your/ca_certificate.pem"
+</VirtualHost>
+
+
+
+
+Oto przykładowa konfiguracja Apache, która spełnia Twoje wymagania:
+
+```apache
+<VirtualHost *:80>
+    ServerName your-server-name
+    DocumentRoot /var/www/html
+
+    # Włącz moduł statusu
+    <Location /server-status>
+        SetHandler server-status
+        Order Deny,Allow
+        Deny from all
+        Allow from localhost ip6-localhost
+        # Użyj SSLRequire do wymuszenia autoryzacji certyfikatem
+        SSLRequireSSL
+        SSLVerifyClient require
+        SSLVerifyDepth  10
+    </Location>
+
+    # Włącz eksport metryk w formacie prometheushowym
+    <Location /metrics>
+        SetHandler prometheus-metrics
+        Order Deny,Allow
+        Deny from all
+        Allow from localhost ip6-localhost
+        # Użyj SSLRequire do wymuszenia autoryzacji certyfikatem
+        SSLRequireSSL
+        SSLVerifyClient require
+        SSLVerifyDepth  10
+    </Location>
+
+    # Konfiguracja SSL
+    SSLEngine on
+    SSLCertificateFile "/path/to/your/certificate.pem"
+    SSLCertificateKeyFile "/path/to/your/private/key.pem"
+    SSLCACertificateFile "/path/to/your/ca_certificate.pem"
+</VirtualHost>
+```
+
+Pamiętaj, że powyższa konfiguracja jest tylko przykładem i może wymagać dostosowania do Twojego konkretnego środowiska 
+i wymagań. Upewnij się, że ścieżki do plików certyfikatów są poprawne i że masz odpowiednie uprawnienia do ich odczytu.
+Ponadto, upewnij się, że masz zainstalowany i włączony moduł `mod_status` dla Apache, który jest wymagany do udostępniania
+metryk serwera. Dla metryk w formacie prometheushowym, będziesz potrzebować dodatkowego modułu jak `mod_prometheus`. 
+
+Zawsze zaleca się testowanie wszelkich zmian konfiguracji w środowisku testowym przed ich wdrożeniem na produkcję.
+
+
+
+-----------------------
+
 #!/bin/bash
 
 # Deklaracja tablicy asocjacyjnej
