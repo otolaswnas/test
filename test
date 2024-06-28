@@ -32,6 +32,20 @@ for polityka in "${!suma_polityk[@]}"; do
     echo "  TB: $suma_TB"
 done
 
+# Obliczamy sumę wszystkich polityk w różnych jednostkach
+suma_wszystkich_bajty=$(echo "${suma_polityk[@]}" | tr ' ' '+' | bc)
+suma_wszystkich_MB=$(bc <<< "scale=2; $suma_wszystkich_bajty / 1024 / 1024")
+suma_wszystkich_GB=$(bc <<< "scale=2; $suma_wszystkich_bajty / 1024 / 1024 / 1024")
+suma_wszystkich_TB=$(bc <<< "scale=2; $suma_wszystkich_bajty / 1024 / 1024 / 1024 / 1024")
+
+echo "Suma wielkości dla wszystkich polityk:"
+echo "  Bajty: $suma_wszystkich_bajty"
+echo "  MB: $suma_wszystkich_MB"
+echo "  GB: $suma_wszystkich_GB"
+echo "  TB: $suma_wszystkich_TB"
+
+
+
 
 ======================================================================================================
 <VirtualHost *:80>
