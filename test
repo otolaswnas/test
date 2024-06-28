@@ -5,20 +5,20 @@ declare -A suma_polityk
 
 # Przetwarzamy dane linia po linii
 while read -r line; do
-    # Wyciągamy wartości index, polityka i wielkość
+    # Wyciągamy wartości index, polityka, wielkość index oraz wielkość index z repliką
     index=$(echo "$line" | jq -r '.indexname')
     polityka=$(echo "$line" | jq -r '.ilmname')
-    wielkosc=$(echo "$line" | jq -r '.sizeindex')
+    wielkosc_index=$(echo "$line" | jq -r '.sizeindex')
+    wielkosc_index_z_replika=$(echo "$line" | jq -r '.sizeindexwithreplica')
 
-    # Dodajemy wielkość do sumy dla danej polityki
-    suma_polityk["$polityka"]=$((suma_polityk["$polityka"] + wielkosc))
+    # Dodajemy wielkości do sumy dla danej polityki
+    suma_polityk["$polityka"]=$((suma_polityk["$polityka"] + wielkosc_index + wielkosc_index_z_replika))
 done < plik_z_danymi.txt
 
 # Wyświetlamy wyniki
 for polityka in "${!suma_polityk[@]}"; do
     echo "Suma wielkości dla polityki $polityka: ${suma_polityk["$polityka"]}"
 done
-
 
 ======================================================================================================
 <VirtualHost *:80>
