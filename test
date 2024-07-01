@@ -1,4 +1,9 @@
-    suma_bajty=${suma_polityk["$polityka"]}
+# Wyświetlenie wyników jako JSON i zapis do pliku
+for polityka in "${!wyniki_json[@]}"; do
+    echo "\"$polityka\": ${wyniki_json["$polityka"]}"
+done | jq -s . > wyniki.json
+------------------
+suma_bajty=${suma_polityk["$polityka"]}
     suma_MB=$(bc <<< "scale=2; $suma_bajty / 1024 / 1024")
     suma_GB=$(bc <<< "scale=2; $suma_bajty / 1024 / 1024 / 1024")
     suma_TB=$(bc <<< "scale=2; $suma_bajty / 1024 / 1024 / 1024 / 1024")
