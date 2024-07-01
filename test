@@ -44,6 +44,55 @@ for polityka in "${!suma_polityk[@]}"; do
     echo "  TB: $suma_TB_z_replika"
 done
 
+
+
+-------------------------------------------
+#!/bin/bash
+# Tworzymy asocjacyjny słownik, w którym kluczem jest nazwa polityki, a wartością suma wielkości w bajtach
+declare -A suma_polityk
+declare -A suma_polityk_z_replika
+
+# Przetwarzamy dane linia po linii
+while read -r line; do
+    # Sprawdzamy, czy linia nie jest pusta
+    if [[ -n "$line" ]]; then
+        # Wyciągamy wartości index, polityka, wielkość index oraz wielkość index z repliką
+        index=$(echo "$line" | jq -r '.indexname')
+        polityka=$(echo "$line" | jq -r '.ilmname')
+        wielkosc_index=$(echo "$line" | jq -r '.sizeindex')
+        wielkosc_index_z_replika=$(echo "$line" | jq -r '.sizeindexwithreplica')
+
+        # Dodajemy wielkości do sumy dla danej polityki
+        suma_polityk["$polityka"]=$(bc <<< "${suma_polityk["$polityka"]} + $wielkosc_index")
+        suma_polityk_z_replika["$polityka"]=$(bc <<< "${suma_polityk_z_replika["$polityka"]} + $wielkosc_index_z_replika")
+    fi
+done < plik_z_danymi.txt
+
+# Wyświetlamy wyniki w różnych jednostkach
+for polityka in "${!suma_polityk[@]}"; do
+    suma_bajty=${suma_polityk["$polityka"]}
+    suma_MB=$(bc <<< "scale=2; $suma_bajty / 1024 / 1024")
+    suma_GB=$(bc <<< "scale=2; $suma_bajty / 1024 / 1024 / 1024")
+    suma_TB=$(bc <<< "scale=2; $suma_bajty / 1024 / 1024 / 1024 / 1024")
+
+    echo "Suma wielkości dla polityki $polityka (bez repliki):"
+    echo "  Bajty: $suma_bajty"
+    echo "  MB: $suma_MB"
+    echo "  GB: $suma_GB"
+    echo "  TB: $suma_TB"
+
+    suma_bajty_z_replika=${suma_polityk_z_replika["$polityka"]}
+    suma_MB_z_replika=$(bc <<< "scale=2; $suma_bajty_z_replika / 1024 / 1024")
+    suma_GB_z_replika=$(bc <<< "scale=2; $suma_bajty_z_replika / 1024 / 1024 / 1024")
+    suma_TB_z_replika=$(bc <<< "scale=2; $suma_bajty_z_replika / 1024 / 1024 / 1024 / 1024")
+
+    echo "Suma wielkości dla polityki $polityka (z repliką):"
+    echo "  Bajty: $suma_bajty_z_replika"
+    echo "  MB: $suma_MB_z_replika"
+    echo "  GB: $suma_GB_z_replika"
+    echo "  TB: $suma_TB_z_replika"
+done
+
 ------------------------------------------------------------------------------------
 #!/bin/bash
 # Tworzymy asocjacyjny słownik, w którym kluczem jest nazwa polityki, a wartością suma wielkości w bajtach
