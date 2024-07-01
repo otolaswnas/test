@@ -1,3 +1,16 @@
+    suma_bajty=${suma_polityk["$polityka"]}
+    suma_MB=$(bc <<< "scale=2; $suma_bajty / 1024 / 1024")
+    suma_GB=$(bc <<< "scale=2; $suma_bajty / 1024 / 1024 / 1024")
+    suma_TB=$(bc <<< "scale=2; $suma_bajty / 1024 / 1024 / 1024 / 1024")
+
+    suma_bajty_z_replika=${suma_polityk_z_replika["$polityka"]}
+    suma_MB_z_replika=$(bc <<< "scale=2; $suma_bajty_z_replika / 1024 / 1024")
+    suma_GB_z_replika=$(bc <<< "scale=2; $suma_bajty_z_replika / 1024 / 1024 / 1024")
+    suma_TB_z_replika=$(bc <<< "scale=2; $suma_bajty_z_replika / 1024 / 1024 / 1024 / 1024")
+
+    wyniki_json["$polityka"]='{"bez_repliki":{"Bajty":'$suma_bajty',"MB":'$suma_MB',"GB":'$suma_GB',"TB":'$suma_TB'},"z_replika":{"Bajty":'$suma_bajty_z_replika',"MB":'$suma_MB_z_replika',"GB":'$suma_GB_z_replika',"TB":'$suma_TB_z_replika'}}'
+
+--------------------
 #!/bin/bash
 # Tworzymy asocjacyjny słownik, w którym kluczem jest nazwa polityki, a wartością suma wielkości w bajtach
 declare -A suma_polityk
