@@ -1,9 +1,32 @@
 #!/bin/bash
 
+# Utworzenie dwuwymiarowej tablicy
+declare -A dwuwymiarowa_tablica
+
+# Ustawienie wartości dla pierwszego klucza (zmieniającego się)
+dwuwymiarowa_tablica["klucz1","wielkość"]="123"
+dwuwymiarowa_tablica["klucz1","inne"]="456"
+
+# Ustawienie wartości dla drugiego klucza (stałe)
+dwuwymiarowa_tablica["klucz2","wielkość"]="789"
+dwuwymiarowa_tablica["klucz2","inne"]="abc"
+
+# Wypisanie wartości z osobnej pętli
+for klucz in "${!dwuwymiarowa_tablica[@]}"; do
+    echo "Wartość dla klucza $klucz: ${dwuwymiarowa_tablica[$klucz]}"
+done
+
+
+
+
+#!/bin/bash
+
 # Ustawienie wartości dla zmiennej tablicowej suma_polityki
 polityka="test-ilm"
 fabryka_wielkosc="123"
 suma_polityki["$polityka"]["wielkość"]=$fabryka_wielkosc
+
+
 
 # Wypisanie wartości zmiennej tablicowej suma_polityki
 echo "Wartość suma_polityki[$polityka][wielkość]: ${suma_polityki[$polityka][wielkość]}"
