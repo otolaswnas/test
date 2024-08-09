@@ -1,5 +1,18 @@
 #!/bin/bash
 
+# Ustawienie wartości dla zmiennej tablicowej suma_polityki
+polityka="test-ilm"
+fabryka_wielkosc="123"
+suma_polityki["$polityka"]["wielkość"]=$fabryka_wielkosc
+
+# Wypisanie wartości zmiennej tablicowej suma_polityki
+echo "Wartość suma_polityki[$polityka][wielkość]: ${suma_polityki[$polityka][wielkość]}"
+
+
+
+
+#!/bin/bash
+
 # Przypisanie wartości dla zmiennych
 polityka="test-ilm"
 fabryka_wielkosc="123"
