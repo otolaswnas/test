@@ -1,3 +1,15 @@
+#!/bin/bash
+
+# Ustawienie wartości dla zmiennej tablicowej
+polityka="test-ilm"
+fabryka_wielkosc="123"
+suma_polityki["$polityka"]["wielkość"]=$fabryka_wielkosc
+
+# Wypisanie wartości zmiennej
+echo "Wartość zmiennej suma_polityki: ${suma_polityki[$polityka][wielkość]}"
+
+
+
 # Wyświetlenie wyników jako JSON i zapis do pliku
 for polityka in "${!wyniki_json[@]}"; do
     echo "\"$polityka\": ${wyniki_json["$polityka"]}"
