@@ -1,5 +1,25 @@
 #!/bin/bash
 
+# Zmienna przechowująca nazwę użytkownika i adres serwera
+USER="twoj_uzytkownik"
+HOST="adres_serwera"
+
+# Ścieżka do pliku z kluczem publicznym
+KEY="$HOME/.ssh/id_rsa.pub"
+
+# Sprawdzenie, czy klucz jest już na serwerze
+ssh -q $USER@$HOST "grep -q -f $KEY ~/.ssh/authorized_keys"
+
+# Jeśli klucz nie jest znaleziony, wykonaj ssh-copy-id
+if [ $? -ne 0 ]; then
+    ssh-copy-id $USER@$HOST
+else
+    echo "Klucz SSH jest już skopiowany na serwer."
+fi
+
+------------------------------
+#!/bin/bash
+
 # Utworzenie dwuwymiarowej tablicy
 declare -A dwuwymiarowa_tablica
 
