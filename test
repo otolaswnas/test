@@ -3,6 +3,25 @@
 # Plik do edycji
 file="plik.txt"
 
+# Tekst do usunięcia z początku linii
+start_remove='{"index_templates":['
+
+# Tekst do usunięcia z końca linii
+end_remove=']}'
+
+# Usuń tekst z początku linii
+sed -i "s/^$start_remove//" "$file"
+
+# Usuń tekst z końca linii
+sed -i "s/$end_remove\$//" "$file"
+
+
+
+#!/bin/bash
+
+# Plik do edycji
+file="plik.txt"
+
 # Tekst do usunięcia z początku pierwszej linii
 start_remove='{"index_templates":['
 
