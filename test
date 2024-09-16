@@ -1,3 +1,7 @@
+jq 'recurse(.[]? | select(type == "object")) | select(depth >= 2)' input.json
+
+
+
 sed 's/^.*{"index_patterns":\[/{\"index_patterns\":\[/' plik.txt
 
 ........
