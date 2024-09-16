@@ -1,7 +1,20 @@
-Jak usunąć z początku pliku 
-{"index_templates":[
-a z końca
-]}
+#!/bin/bash
+
+# Plik do edycji
+file="plik.txt"
+
+# Tekst do usunięcia z początku pierwszej linii
+start_remove='{"index_templates":['
+
+# Tekst do usunięcia z końca ostatniej linii
+end_remove=']}'
+
+# Usuń tekst z początku pierwszej linii
+sed -i "1s/^$start_remove//" "$file"
+
+# Usuń tekst z końca ostatniej linii
+sed -i "\$s/$end_remove\$//" "$file"
+
 -------------
 curl -X GET "http://localhost:9200/_index_template" -H 'Content-Type: application/json' | jq '.index_templates[] | select(.index_template.template.settings.index.default_pipeline != null)'
 
