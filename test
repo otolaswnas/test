@@ -1,3 +1,8 @@
+Jak usunąć z początku pliku 
+{"index_templates":[
+a z końca
+]}
+-------------
 curl -X GET "http://localhost:9200/_index_template" -H 'Content-Type: application/json' | jq '.index_templates[] | select(.index_template.template.settings.index.default_pipeline != null)'
 
 ---------------------------------------
