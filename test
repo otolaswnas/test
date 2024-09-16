@@ -1,3 +1,6 @@
+sed 's/^.*{"index_patterns":\[/{\"index_patterns\":\[/' plik.txt
+
+........
 #!/bin/bash
 
 # Plik do edycji
