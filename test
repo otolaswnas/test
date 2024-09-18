@@ -1,5 +1,37 @@
 #!/bin/bash
 
+# Pobierz tylko szablony indeksów, których nazwa zaczyna się od devwie01 lub devwie02
+curl -X GET "http://localhost:9200/_index_template" -H 'Content-Type: application/json' -o templates.json
+
+# Sprawdź, czy plik templates.json istnieje i nie jest pusty
+if [[ ! -s templates.json ]]; then
+  echo "Błąd: Plik templates.json jest pusty lub nie istnieje."
+  exit 1
+fi
+
+# Sprawdź poprawność pliku JSON
+jq . templates.json > /dev/null
+if [[ $? -ne 0 ]]; then
+  echo "Błąd: Plik templates.json jest niepoprawny."
+  exit 1
+fi
+
+# Utwórz katalog z aktualną datą, godziną i minutą
+backup_dir="/tmp/indexTemplateBackup/$(date +'%Y%m%d_%H%M')"
+mkdir -p "$backup_dir"
+
+# Iteruj przez każdy szablon i zapisz do osobnego pliku tylko te, które zaczynają się od devwie01 lub devwie02
+jq -c '.index_templates[] | select(.name | startswith("devwie01") or startswith("devwie02"))' templates.json | while IFS= read -r template; do
+  name=$(echo "$template" | jq -r '.name')
+  body=$(echo "$template" | jq -c '.index_template | del(.version, .composed_of)')
+  echo "$body" > "${backup_dir}/${name}.json"
+done
+
+echo "Szablony indeksów zostały zapisane w katalogu: $backup_dir"
+
+---------
+#!/bin/bash
+
 # Pobierz wszystkie szablony indeksów
 curl -X GET "http://localhost:9200/_index_template" -H 'Content-Type: application/json' -o templates.json
 
