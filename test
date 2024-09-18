@@ -7,6 +7,27 @@ curl -X GET "http://localhost:9200/_index_template" -H 'Content-Type: applicatio
 backup_dir="/tmp/indexTemplateBackup/$(date +'%Y%m%d_%H%M')"
 mkdir -p "$backup_dir"
 
+# Iteruj przez każdy szablon i zapisz do osobnego pliku tylko te, które zaczynają się od devwie01 lub devwie02
+for template in $(jq -c '.index_templates[]' templates.json); do
+  name=$(echo $template | jq -r '.name')
+  if [[ $name == devwie01* || $name == devwie02* ]]; then
+    body=$(echo $template | jq -c '.index_template | del(.version, .composed_of)')
+    echo $body > "${backup_dir}/${name}.json"
+  fi
+done
+
+echo "Szablony indeksów zostały zapisane w katalogu: $backup_dir"
+
+----
+#!/bin/bash
+
+# Pobierz wszystkie szablony indeksów
+curl -X GET "http://localhost:9200/_index_template" -H 'Content-Type: application/json' -o templates.json
+
+# Utwórz katalog z aktualną datą, godziną i minutą
+backup_dir="/tmp/indexTemplateBackup/$(date +'%Y%m%d_%H%M')"
+mkdir -p "$backup_dir"
+
 # Iteruj przez każdy szablon i zapisz do osobnego pliku
 for template in $(jq -c '.index_templates[]' templates.json); do
   name=$(echo $template | jq -r '.name')
