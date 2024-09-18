@@ -1,3 +1,29 @@
+for file in *.json; do
+  name=$(basename "$file" .json)
+  curl -X PUT "http://localhost:9200/_index_template/$name" -H 'Content-Type: application/json' -d @"$file"
+done
+
+-----------------------------
+# Pobierz wszystkie szablony indeksów
+curl -X GET "http://localhost:9200/_index_template" -H 'Content-Type: application/json' -o templates.json
+
+# Iteruj przez każdy szablon i zapisz do osobnego pliku
+for template in $(jq -c '.index_templates[]' templates.json); do
+  name=$(echo $template | jq -r '.name')
+  body=$(echo $template | jq -c '.index_template | del(.version, .composed_of)')
+  echo $body > "${name}.json"
+done
+
+
+
+---------------
+for template in $(jq -c '.index_templates[]' templates.json); do
+  name=$(echo $template | jq -r '.name')
+  body=$(echo $template | jq -c '.index_template')
+  curl -X PUT "http://localhost:9200/_index_template/$name" -H 'Content-Type: application/json' -d "$body"
+done
+
+-------------
 jq 'recurse(.[]? | select(type == "object")) | select(depth >= 2)' input.json
 
 
