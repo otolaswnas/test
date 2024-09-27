@@ -1,5 +1,44 @@
 #!/bin/bash
 
+# Elasticsearch endpoint
+ES_ENDPOINT="http://localhost:9200"
+
+# Sprawdzenie aliasów rollover
+check_rollover_alias() {
+  echo "Sprawdzanie aliasów rollover..."
+  indices=$(curl -s -X GET "$ES_ENDPOINT/_cat/indices?h=index")
+  for index in $indices; do
+    alias=$(curl -s -X GET "$ES_ENDPOINT/_alias/$index" | jq -r '.[].aliases | keys[]')
+    if [[ $alias == *"rollover"* ]]; then
+      echo "Indeks $index ma alias rollover: $alias"
+    else
+      echo "Indeks $index nie ma aliasu rollover."
+    fi
+  done
+}
+
+# Sprawdzenie problemów z rolloverem
+check_rollover_issues() {
+  echo "Sprawdzanie problemów z rolloverem..."
+  indices=$(curl -s -X GET "$ES_ENDPOINT/_cat/indices?h=index")
+  for index in $indices; do
+    rollover_info=$(curl -s -X GET "$ES_ENDPOINT/$index/_rollover")
+    if [[ $rollover_info == *"error"* ]]; then
+      echo "Indeks $index ma problem z rolloverem: $rollover_info"
+    else
+      echo "Indeks $index nie ma problemów z rolloverem."
+    fi
+  done
+}
+
+# Wykonanie funkcji
+check_rollover_alias
+check_rollover_issues
+
+
+--------------------------------------------
+#!/bin/bash
+
 # Pobierz tylko szablony indeksów, których nazwa zaczyna się od devwie01 lub devwie02
 curl -X GET "http://localhost:9200/_index_template" -H 'Content-Type: application/json' -o templates.json
 
