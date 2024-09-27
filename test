@@ -2,13 +2,16 @@
 
 # Elasticsearch endpoint
 ES_ENDPOINT="http://localhost:9200"
+# Uwierzytelnianie
+USERNAME="twoja_nazwa_użytkownika"
+PASSWORD="twoje_hasło"
 
 # Sprawdzenie aliasów rollover
 check_rollover_alias() {
   echo "Sprawdzanie aliasów rollover..."
-  indices=$(curl -s -X GET "$ES_ENDPOINT/_cat/indices?h=index")
+  indices=$(curl -s -u $USERNAME:$PASSWORD -X GET "$ES_ENDPOINT/_cat/indices?h=index")
   for index in $indices; do
-    alias=$(curl -s -X GET "$ES_ENDPOINT/_alias/$index" | jq -r '.[].aliases | keys[]')
+    alias=$(curl -s -u $USERNAME:$PASSWORD -X GET "$ES_ENDPOINT/_alias/$index" | jq -r '.[].aliases | keys[]')
     if [[ $alias == *"rollover"* ]]; then
       echo "Indeks $index ma alias rollover: $alias"
     else
@@ -20,9 +23,9 @@ check_rollover_alias() {
 # Sprawdzenie problemów z rolloverem
 check_rollover_issues() {
   echo "Sprawdzanie problemów z rolloverem..."
-  indices=$(curl -s -X GET "$ES_ENDPOINT/_cat/indices?h=index")
+  indices=$(curl -s -u $USERNAME:$PASSWORD -X GET "$ES_ENDPOINT/_cat/indices?h=index")
   for index in $indices; do
-    rollover_info=$(curl -s -X GET "$ES_ENDPOINT/$index/_rollover")
+    rollover_info=$(curl -s -u $USERNAME:$PASSWORD -X GET "$ES_ENDPOINT/$index/_rollover")
     if [[ $rollover_info == *"error"* ]]; then
       echo "Indeks $index ma problem z rolloverem: $rollover_info"
     else
