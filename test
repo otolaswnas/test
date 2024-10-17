@@ -1,3 +1,25 @@
+---
+- name: Ustawienie kluczy SSH na zdalnych hostach
+  hosts: all
+  tasks:
+    - name: Generowanie klucza SSH, jeśli nie istnieje
+      command: ssh-keygen -t rsa -b 2048 -f ~/.ssh/id_rsa -q -N ""
+      args:
+        creates: ~/.ssh/id_rsa
+
+    - name: Pobieranie zawartości klucza publicznego
+      register: ssh_pub_key
+      command: cat ~/.ssh/id_rsa.pub
+
+    - name: Kopiowanie klucza publicznego na zdalne hosty
+      authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ ssh_pub_key.stdout }}"
+        state: present
+
+
+
+----------------------
 #!/bin/bash
 
 # Elasticsearch endpoint
