@@ -1,3 +1,25 @@
+PUT _ingest/pipeline/copy_meta_project
+{
+  "description": "Kopiowanie wartości meta.project z pola message do pola meta.project",
+  "processors": [
+    {
+      "grok": {
+        "field": "message",
+        "patterns": ["%{QUOTEDSTRING:meta_project_key}:%{QUOTEDSTRING:meta_project_value}"],
+        "pattern_definitions": {
+          "QUOTEDSTRING": "\"(?:[^\"\\\\]|\\\\.)*\""
+        }
+      }
+    },
+    {
+      "set": {
+        "field": "meta.project",
+        "value": "{{meta_project_value}}"
+      }
+    }
+  ]
+}
+
 ---
 - name: Ustawienie kluczy SSH na zdalnych hostach
   hosts: all
