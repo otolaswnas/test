@@ -10,6 +10,27 @@ PUT _ingest/pipeline/copy_meta_project
     },
     {
       "set": {
+        "if": "ctx.meta_project != null",
+        "field": "meta.project",
+        "value": "{{meta_project}}"
+      }
+    }
+  ]
+}
+
+-------------
+PUT _ingest/pipeline/copy_meta_project
+{
+  "description": "Kopiowanie wartości meta.project z pola message do pola meta.project",
+  "processors": [
+    {
+      "grok": {
+        "field": "message",
+        "patterns": ["\"meta\\.project\":\"(?<meta_project>[^\"]+)\""]
+      }
+    },
+    {
+      "set": {
         "field": "meta.project",
         "value": "{{meta_project}}"
       }
