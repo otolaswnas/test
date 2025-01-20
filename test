@@ -3,14 +3,16 @@
 # Ścieżka do pliku YAML
 yaml_file="path/to/your/file.yaml"
 
-# Wczytywanie i przefiltrowanie job_names bez cudzysłowów oraz z separatorami '|'
-job_names=$(grep 'job_name' "$yaml_file" | sed "s/job_name://g" | tr -d "'\"," | tr '\n' '|')
+# Wczytywanie i przefiltrowanie job_names bez cudzysłowów, spacji oraz znaków '-', z separatorami '|'
+job_names=$(grep 'job_name' "$yaml_file" | sed "s/job_name:[ ]*//g" | tr -d "'\", -'" | tr '\n' '|')
 
 # Usunięcie ostatniego znaku '|'
 job_names=${job_names%|}
 
 # Wypisanie wyników
 echo "$job_names"
+
+
 
 -----------
 PUT _ingest/pipeline/copy_meta_project
