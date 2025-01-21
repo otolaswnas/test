@@ -6,8 +6,8 @@ input_file="path/to/your/input_file.yaml"
 # Ścieżka do pliku wynikowego
 output_file="path/to/your/output_file.txt"
 
-# Wczytywanie i przefiltrowanie wartości job_name, usuwając cudzysłowy oraz spacje, znaki `-`
-job_names=$(grep 'job_name' "$input_file" | sed "s/job_name:[ ]*//g" | tr -d "'\"" | tr '\n' '|')
+# Wczytywanie, przefiltrowanie wartości job_name, usuwanie cudzysłowów, spacji, myślników oraz pomijanie zakomentowanych linii
+job_names=$(grep -v '^#' "$input_file" | grep 'job_name' | sed "s/.*job_name:[ ]*//g" | tr -d "'\"" | tr '\n' '|')
 
 # Usunięcie ostatniego znaku '|'
 job_names=${job_names%|}
@@ -17,6 +17,7 @@ echo "$job_names" > "$output_file"
 
 # Wyświetlenie wyników na ekranie
 cat "$output_file"
+
 
 -----------------------
 #!/bin/bash
