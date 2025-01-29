@@ -1,3 +1,6 @@
+parse-json | extend groups = data.groups | mv-expand groups | extend rules = groups.rules | mv-expand rules
+
+---
 parse-json | extend "groups" = data.groups | mv-expand "groups" | extend "rules" = groups.rules | mv-expand "rules" | extend alertState = rules.alerts[].state, alertName = rules.alerts[].labels.alertname | project alertState, alertName
 --
 parse-json | extend "groups" = data.groups | mv-expand "groups" | extend "rules" = groups.rules | mv-expand "rules" | extend "alerts" = rules.alerts | mv-expand "alerts"
