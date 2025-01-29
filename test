@@ -1,3 +1,6 @@
+parse-json | where "status" == "success" | project "data.groups[].name", "data.groups[].rules[].name", "data.groups[].rules[].state", "data.groups[].rules[].query", "data.groups[].rules[].duration", "data.groups[].rules[].labels.severity", "data.groups[].rules[].annotations.summary", "data.groups[].rules[].alerts[].state", "data.groups[].rules[].alerts[].annotations.summary", "data.groups[].rules[].alerts[].labels.instance"
+
+=============
 #!/bin/bash
 
 # Wyświetlenie ścieżek w JSON
