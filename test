@@ -1,3 +1,6 @@
+parse-json | extend "groups" = data.groups | mv-expand "groups" | extend "rules" = groups.rules | mv-expand "rules" | extend "alerts" = rules.alerts | mv-expand "alerts"
+
+-------
 parse-json | where "status" == "success" | project "data.groups[].name", "data.groups[].rules[].name", "data.groups[].rules[].state", "data.groups[].rules[].query", "data.groups[].rules[].duration", "data.groups[].rules[].labels.severity", "data.groups[].rules[].annotations.summary", "data.groups[].rules[].alerts[].state", "data.groups[].rules[].alerts[].annotations.summary", "data.groups[].rules[].alerts[].labels.instance"
 
 =============
