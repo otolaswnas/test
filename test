@@ -1,5 +1,27 @@
 #!/bin/bash
 
+# Wyświetlenie ścieżek w JSON
+json_paths=$(jq -r 'paths | map(tostring) | join(".")' plik.json)
+
+# Iteracja przez każdą ścieżkę i konwersja do formatu UQL
+echo "${json_paths}" | while read -r path; do
+  # Zmieniamy kropki na strzałki
+  uql_path=$(echo "$path" | sed 's/\./->/g')
+  
+  # Dla tablic UQL używa innej notacji
+  uql_path=$(echo "$uql_path" | sed 's/
+
+\[\([0-9]*\)\]
+
+/->["\1"]/g')
+  
+  # Wyświetlenie w stylu UQL
+  echo "$uql_path"
+done
+
+---------------------
+#!/bin/bash
+
 # Ścieżka do pliku YAML wejściowego
 input_file="path/to/your/input_file.yaml"
 
