@@ -1,3 +1,22 @@
+#!/bin/bash
+
+LDAP_SERVER="ldap://your-ad-server"
+BIND_DN="cn=admin,dc=yourdomain,dc=com"
+BIND_PW="yourpassword"
+BASE_DN="ou=Groups,dc=yourdomain,dc=com"
+FILTER="(cn=*crlo_evt*)"
+
+# Pobierz grupy zgodne z maską *_crlo_evt_*
+groups=$(ldapsearch -x -H "$LDAP_SERVER" -D "$BIND_DN" -w "$BIND_PW" -b "$BASE_DN" "$FILTER" cn | grep "^cn:" | awk '{print $2}')
+
+# Iteruj przez każdą grupę i policz członków
+for group in $groups; do
+    members=$(ldapsearch -x -H "$LDAP_SERVER" -D "$BIND_DN" -w "$BIND_PW" -b "$BASE_DN" "(cn=$group)" member | grep "^member:" | wc -l)
+    echo "Group: $group, Members: $members"
+done
+
+
+--------------------------------------------------------------------------------------------------------
 parse-json | extend groups = data.groups | mv-expand groups | extend rules = groups.rules | mv-expand rules
 
 ---
