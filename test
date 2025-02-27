@@ -1,3 +1,21 @@
+image:
+  repository: docker.elastic.co/apm/apm-server
+  tag: 8.5.1
+
+elasticsearchHosts: "http://elasticsearch:9200"
+
+apmConfig:
+  apm-server.yml: |
+    apm-server:
+      host: "0.0.0.0:8200"
+    output.elasticsearch:
+      hosts: ["http://elasticsearch:9200"]
+
+service:
+  type: ClusterIP
+  port: 8200
+
+-----------
 #!/bin/bash
 
 LDAP_SERVER="ldaps://your-ad-server:636"  # Użycie SSL na porcie 636
