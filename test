@@ -1,3 +1,69 @@
+---
+- name: Instalacja i konfiguracja Node Exporter na systemach Red Hat
+  hosts: redhat_servers
+  become: yes
+  vars:
+    # Parametryzacja: adres, na którym będzie nasłuchiwał Node Exporter
+    node_exporter_listen_address: "0.0.0.0:9100"
+    # Lokalizacja tymczasowego pliku repo dla Prometheusa
+    prometheus_repo_file: /etc/yum.repos.d/prometheus.repo
+  tasks:
+    - name: Dodaj tymczasowe repozytorium Prometheus
+      copy:
+        dest: "{{ prometheus_repo_file }}"
+        content: |
+          [prometheus]
+          name=Prometheus RPM Repo
+          baseurl=https://packagecloud.io/prometheus-rpm/release/el/7/$basearch
+          enabled=1
+          gpgcheck=1
+          repo_gpgcheck=1
+          gpgkey=https://packagecloud.io/prometheus-rpm/release/gpg
+        owner: root
+        group: root
+        mode: "0644"
+      notify:
+        - Clean Yum Cache
+
+    - name: Instalacja pakietu node_exporter
+      yum:
+        name: node_exporter
+        state: present
+
+    - name: Usuń tymczasowe repozytorium Prometheus
+      file:
+        path: "{{ prometheus_repo_file }}"
+        state: absent
+      notify:
+        - Clean Yum Cache
+
+    - name: Konfiguracja systemdowego pliku serwisu Node Exporter
+      template:
+        src: templates/node_exporter.service.j2
+        dest: /etc/systemd/system/node_exporter.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify:
+        - Reload systemd daemon
+
+    - name: Włączenie i uruchomienie serwisu Node Exporter
+      systemd:
+        name: node_exporter
+        enabled: yes
+        state: restarted
+
+  handlers:
+    - name: Clean Yum Cache
+      command: yum clean all
+
+    - name: Reload systemd daemon
+      command: systemctl daemon-reload
+
+
+
+
+-----------------------------
 image:
   repository: docker.elastic.co/apm/apm-server
   tag: 8.5.1
