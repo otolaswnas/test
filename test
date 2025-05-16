@@ -1,3 +1,45 @@
+---
+- name: Konfiguracja użytkownika i SSH
+  hosts: target_host
+  become: true
+  vars:
+    user_name: "kafka_conf"  # Możesz zmienić to na dynamiczną wartość
+
+  tasks:
+    - name: Dodanie użytkownika
+      ansible.builtin.user:
+        name: "{{ user_name }}"
+        state: present
+
+    - name: Konfiguracja polityki hasła
+      ansible.builtin.command:
+        cmd: "chage -I -1 -m 0 -M 99999 -E -1 {{ user_name }}"
+
+    - name: Tworzenie katalogu .ssh jeśli nie istnieje
+      ansible.builtin.file:
+        path: "/home/{{ user_name }}/.ssh"
+        state: directory
+        owner: "{{ user_name }}"
+        group: "{{ user_name }}"
+        mode: '0700'
+
+    - name: Kopiowanie klucza publicznego do authorized_keys
+      ansible.builtin.copy:
+        src: "/root/.ssh/id_rsa.pub"
+        dest: "/home/{{ user_name }}/.ssh/authorized_keys"
+        owner: "{{ user_name }}"
+        group: "{{ user_name }}"
+        mode: '0600'
+
+    - name: Dodanie użytkownika do sudo
+      ansible.builtin.lineinfile:
+        path: "/etc/sudoers.d/{{ user_name }}"
+        line: "{{ user_name }} ALL=NOPASSWD: /var/lib/kafka/kafka"
+        create: true
+        mode: '0440'
+
+
+----------------------------------------------------------------------------------------------
 [redhat_servers]
 server1.example.com ansible_user=root ansible_ssh_private_key_file=~/.ssh/id_rsa
 server2.example.com ansible_user=root ansible_ssh_private_key_file=~/.ssh/id_rsa
