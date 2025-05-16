@@ -3,7 +3,7 @@
   hosts: target_host
   become: true
   vars:
-    user_name: "kafka_conf"  # Możesz zmienić to na dynamiczną wartość
+    user_name: "kafka_conf"  # Możesz zmienić nazwę użytkownika
 
   tasks:
     - name: Dodanie użytkownika
@@ -23,15 +23,19 @@
         group: "{{ user_name }}"
         mode: '0700'
 
-    - name: Kopiowanie klucza publicznego do authorized_keys
+    - name: Pobranie klucza SSH użytkownika, z którego się łączę
+      ansible.builtin.set_fact:
+        ssh_key: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/id_rsa.pub') }}"
+
+    - name: Kopiowanie klucza SSH do authorized_keys
       ansible.builtin.copy:
-        src: "/root/.ssh/id_rsa.pub"
+        content: "{{ ssh_key }}"
         dest: "/home/{{ user_name }}/.ssh/authorized_keys"
         owner: "{{ user_name }}"
         group: "{{ user_name }}"
         mode: '0600'
 
-    - name: Dodanie użytkownika do sudo
+    - name: Dodanie użytkownika do sudoers
       ansible.builtin.lineinfile:
         path: "/etc/sudoers.d/{{ user_name }}"
         line: "{{ user_name }} ALL=NOPASSWD: /var/lib/kafka/kafka"
