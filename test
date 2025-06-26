@@ -1,3 +1,105 @@
+Oczywiście! Poniżej znajdziesz **gotową treść e-maila**, który możesz wysłać do **GitLab Support** lub zespołu technicznego GitLaba (np. przez [support.gitlab.com](https://support.gitlab.com/) lub partnerskiego opiekuna technicznego, jeśli masz wersję Premium/Ultimate).
+
+---
+
+## 📧 **Temat (Subject):**  
+📌 *Request for GitLab Prometheus Dashboards or Metric Queries for Full Component Monitoring*
+
+---
+
+## 🔤 🇬🇧 **Wersja angielska — English version**
+
+> Hello GitLab Support Team,  
+>
+> I’m using a self-managed GitLab installation running directly on a Linux VM. I have successfully configured Prometheus and exporters for all key GitLab components, including:
+> - `node_exporter` (system metrics)
+> - `gitlab_workhorse` (port 9229)
+> - `gitlab_exporter` (Rails metrics, port 9168)
+> - `sidekiq` (port 8082)
+> - `redis_exporter` (port 9121)
+> - `postgres_exporter` (port 9187)
+> - `gitaly` (port 9236)
+>
+> I understand that GitLab officially no longer provides prebuilt Grafana dashboards for these components (as included previously in the Omnibus or Helm setups), and most community resources have since been removed or deprecated.
+>
+> **However, these dashboards are still extremely important for full visibility and production-grade monitoring** of a self-hosted GitLab environment.  
+>
+> Could you please:
+>
+> 1. Provide me with any existing JSON Grafana dashboards or sample files (even internally used ones)?
+> 2. Alternatively, share example PromQL queries and best practices that would allow me to rebuild dashboards manually for:
+>     - GitLab Rails
+>     - Gitaly
+>     - Redis
+>     - PostgreSQL
+>     - Sidekiq
+>     - GitLab Workhorse
+>
+> I would greatly appreciate your support and any documentation or internal materials you can share.  
+>
+> Thank you in advance for your help – I really wish to keep GitLab monitoring robust and comprehensive.
+>
+> Kind regards,  
+> **[Twoje imię — Your Name]**
+
+---
+
+## 🇵🇱 **Wersja polska — Polish version**
+
+> Dzień dobry Zespole GitLab Support,  
+>
+> Korzystam z instalacji GitLaba w wersji self-managed, uruchomionej bezpośrednio na maszynie z systemem Linux.  
+> Udało mi się skonfigurować Prometheusa oraz eksportery metryk dla wszystkich kluczowych komponentów GitLaba, w tym:
+>
+> - `node_exporter` (metryki systemowe)
+> - `gitlab_workhorse` (port 9229)
+> - `gitlab_exporter` (Rails — port 9168)
+> - `sidekiq` (port 8082)
+> - `redis_exporter` (port 9121)
+> - `postgres_exporter` (port 9187)
+> - `gitaly` (port 9236)
+>
+> Rozumiem, że GitLab oficjalnie zaprzestał udostępniania gotowych dashboardów Grafany (dostępnych dawniej np. w pakiecie Omnibus lub Helm), a zasoby społecznościowe również zniknęły lub są obecnie nieaktywne.
+>
+> **Jednak takie dashboardy wciąż są bardzo ważne dla pełnego monitorowania środowiska produkcyjnego GitLab.**
+>
+> Uprzejmie proszę o:
+>
+> 1. Przesłanie gotowych dashboardów Grafany w formacie JSON (nawet jeśli są to materiały wewnętrzne),
+> 2. Alternatywnie: przesłanie przykładowych zapytań PromQL oraz dobrych praktyk dotyczących monitorowania metryk takich jak:
+>    - GitLab Rails
+>    - Gitaly
+>    - Redis
+>    - PostgreSQL
+>    - Sidekiq
+>    - Workhorse
+>
+> Będę bardzo wdzięczny za każdą pomoc i wszelkie dokumenty lub źródła, które mogą mi pomóc w zapewnieniu pełnego monitoringu środowiska GitLab.
+>
+> Z góry dziękuję.  
+> Z poważaniem,  
+> **[Twoje imię]**
+
+---
+
+## ✉️ Gdzie wysłać?
+
+Jeśli masz wersję **Premium lub Ultimate**, możesz:
+- wejść na [https://support.gitlab.com/](https://support.gitlab.com/) i zalogować się
+- otworzyć **support ticket** z powyższym tekstem
+- dołączyć listę swoich komponentów i konfiguracji
+
+W przypadku wersji **Community (CE)** lub self-hosted EE bez wsparcia — możesz:
+- opublikować pytanie na [https://forum.gitlab.com](https://forum.gitlab.com)
+- lub wysłać wiadomość przez formularz kontaktowy z zapytaniem do działu technicznego
+
+---
+
+Jeśli chcesz — mogę też pomóc:
+- przygotować dashboard „od zera” na podstawie Twoich metryk,
+- stworzyć szablony zapytań PromQL, które wkleisz do Grafany.
+
+Daj znać, jeśli chcesz iść tą drogą.
 ---
 - name: Konfiguracja użytkownika i SSH
   hosts: target_host
