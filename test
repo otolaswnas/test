@@ -1,70 +1,19 @@
-To bardzo konkretne i zaawansowane pytanie!  
-Niestety, **oficjalna dokumentacja Grafany i Prometheusa** nie podaje wprost przykładów, które wprost pokazują, że:
+if ! command -v getent && ! command -v host && ! command -v dig; then
+  echo "Brak narzędzi do rozwiązywania nazw (getent, host, dig)!" >&2
+  exit 1
+fi
 
-1. **`$__rate_interval` nie bierze pod uwagę różnych scrape interval dla różnych jobów/targetów w jednym datasource**  
-2. **Nie można nadpisać (override) `$__rate_interval` bezpośrednio**
-
-Ale można znaleźć fragmenty dokumentacji i dyskusji, które to potwierdzają.  
-Poniżej znajdziesz **linki do dokumentacji i oficjalnych dyskusji**, które to wyjaśniają.
-
----
-
-## 1. **`$__rate_interval` nie bierze pod uwagę różnych scrape interval dla różnych jobów**
-
-### **Oficjalna dokumentacja Grafany:**
-- [https://grafana.com/docs/grafana/latest/datasources/prometheus/#rate-interval](https://grafana.com/docs/grafana/latest/datasources/prometheus/#rate-interval)
-
-> The `$__rate_interval` variable is calculated based on the time range and the scrape interval of the data source.  
-> If you have multiple scrape intervals, the value is based on the scrape interval of the data source, not the individual time series.
-
-**To oznacza, że jeśli masz różne scrape interval dla różnych jobów, `$__rate_interval` bierze pod uwagę tylko jeden (główny) scrape interval z datasource, a nie z poszczególnych jobów.**
-
----
-
-### **Dyskusje i potwierdzenia od twórców Grafany:**
-
-- [https://github.com/grafana/grafana/issues/16836](https://github.com/grafana/grafana/issues/16836)  
-  (Issue: "Prometheus $__rate_interval does not work with multiple scrape intervals")
-
-> The `$__rate_interval` is calculated based on the scrape interval of the data source, not per time series.
-
----
-
-## 2. **Nie można nadpisać `$__rate_interval` bezpośrednio**
-
-### **Oficjalna dokumentacja Grafany:**
-- [https://grafana.com/docs/grafana/latest/datasources/prometheus/#rate-interval](https://grafana.com/docs/grafana/latest/datasources/prometheus/#rate-interval)
-
-> You cannot override the value of `$__rate_interval` directly.  
-> If you need a different interval, specify it explicitly in your query.
-
----
-
-### **Dyskusje na GitHub:**
-- [https://github.com/grafana/grafana/issues/16836#issuecomment-489964964](https://github.com/grafana/grafana/issues/16836#issuecomment-489964964)
-
-> There is no way to override `$__rate_interval` for a specific query or dashboard.  
-> If you need a different interval, you have to specify it manually.
-
----
-
-## **Podsumowanie i cytaty:**
-
-- **Grafana Docs:**  
-  > If you have multiple scrape intervals, the value is based on the scrape interval of the data source, not the individual time series.  
-  > You cannot override the value of `$__rate_interval` directly.
-
-- **GitHub Issues:**  
-  > There is no way to override `$__rate_interval` for a specific query or dashboard.
-
----
-
-## **Linki do dokumentacji i dyskusji:**
-
-1. [Grafana Docs – Prometheus rate interval](https://grafana.com/docs/grafana/latest/datasources/prometheus/#rate-interval)
-2. [GitHub Issue: Prometheus $__rate_interval does not work with multiple scrape intervals](https://github.com/grafana/grafana/issues/16836)
-3. [GitHub Issue: No way to override $__rate_interval](https://github.com/grafana/grafana/issues/16836#issuecomment-489964964)
-
----
-
-**Jeśli chcesz, mogę podać jeszcze inne źródła lub cytaty z dokumentacji – daj znać!**
+jq -r 'to_entries[] | select(.value.hosts) | .value.hosts | to_entries[] | .value["ansible-hostname"]' inventory.json | while read fqdn; do
+  # Spróbuj getent, potem host, potem dig
+  ip=$(getent hosts "$fqdn" 2>/dev/null | awk '{print $1}')
+  if [ -z "$ip" ]; then
+    ip=$(host "$fqdn" 2>/dev/null | awk '/has address/ {print $4; exit}')
+  fi
+  if [ -z "$ip" ]; then
+    ip=$(dig +short "$fqdn" 2>/dev/null | head -n1)
+  fi
+  if [ -z "$ip" ]; then
+    ip="brak_ip"
+  fi
+  echo "$fqdn $ip"
+done
