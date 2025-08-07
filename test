@@ -1,13 +1,30 @@
 #!/bin/bash
 
+set -e
+
+# Parametry certyfikatu
 ORG="MyOrg"
 C="PL"
 OU="IT"
 CN="multi-host"
 TEMPLATE="all_hosts_csr.cnf"
 
+# Pobierz ścieżkę do inventory (domyślnie inventory.json lub inventory.yaml)
+INVENTORY="${1:-inventory.json}"
+
+# Jeśli plik jest YAML, konwertuj do JSON
+if [[ "$INVENTORY" =~ \.ya?ml$ ]]; then
+  TMP_JSON=$(mktemp)
+  python3 -c "
+import sys, yaml, json
+with open('$INVENTORY') as f:
+    json.dump(yaml.safe_load(f), sys.stdout)
+" > "$TMP_JSON"
+  INVENTORY="$TMP_JSON"
+fi
+
 # Wyciągnij FQDN-y z inventory.json
-fqdns=($(jq -r 'to_entries[] | select(.value.hosts) | .value.hosts | to_entries[] | .value["ansible-hostname"]' inventory.json | sort -u))
+fqdns=($(jq -r 'to_entries[] | select(.value.hosts) | .value.hosts | to_entries[] | .value["ansible-hostname"]' "$INVENTORY" | sort -u))
 
 # Przygotuj sekcję alt_names
 ALT_NAMES=""
@@ -55,25 +72,7 @@ EOF
 
 echo "Wygenerowano $TEMPLATE"
 
-
-
---------------------
-if ! command -v getent && ! command -v host && ! command -v dig; then
-  echo "Brak narzędzi do rozwiązywania nazw (getent, host, dig)!" >&2
-  exit 1
+# Usuń tymczasowy plik JSON, jeśli był użyty
+if [[ -n "$TMP_JSON" && -f "$TMP_JSON" ]]; then
+  rm -f "$TMP_JSON"
 fi
-
-jq -r 'to_entries[] | select(.value.hosts) | .value.hosts | to_entries[] | .value["ansible-hostname"]' inventory.json | while read fqdn; do
-  # Spróbuj getent, potem host, potem dig
-  ip=$(getent hosts "$fqdn" 2>/dev/null | awk '{print $1}')
-  if [ -z "$ip" ]; then
-    ip=$(host "$fqdn" 2>/dev/null | awk '/has address/ {print $4; exit}')
-  fi
-  if [ -z "$ip" ]; then
-    ip=$(dig +short "$fqdn" 2>/dev/null | head -n1)
-  fi
-  if [ -z "$ip" ]; then
-    ip="brak_ip"
-  fi
-  echo "$fqdn $ip"
-done
