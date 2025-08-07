@@ -1,3 +1,63 @@
+#!/bin/bash
+
+ORG="MyOrg"
+C="PL"
+OU="IT"
+CN="multi-host"
+TEMPLATE="all_hosts_csr.cnf"
+
+# Wyciągnij FQDN-y z inventory.json
+fqdns=($(jq -r 'to_entries[] | select(.value.hosts) | .value.hosts | to_entries[] | .value["ansible-hostname"]' inventory.json | sort -u))
+
+# Przygotuj sekcję alt_names
+ALT_NAMES=""
+n=1
+for fqdn in "${fqdns[@]}"; do
+  ALT_NAMES+="DNS.$n = $fqdn\n"
+  # Rozwiąż IP (getent, host, dig)
+  ip=$(getent hosts "$fqdn" 2>/dev/null | awk '{print $1}')
+  if [ -z "$ip" ]; then
+    ip=$(host "$fqdn" 2>/dev/null | awk '/has address/ {print $4; exit}')
+  fi
+  if [ -z "$ip" ]; then
+    ip=$(dig +short "$fqdn" 2>/dev/null | head -n1)
+  fi
+  if [ -n "$ip" ]; then
+    ALT_NAMES+="IP.$n = $ip\n"
+  fi
+  ((n++))
+done
+
+# Usuń ostatni znak nowej linii
+ALT_NAMES=$(echo -e "$ALT_NAMES" | sed '$!s/$/\\/' | tr -d '\\')
+
+# Przygotuj plik konfiguracyjny
+cat > $TEMPLATE <<EOF
+[ req ]
+default_bits       = 2048
+prompt             = no
+default_md         = sha256
+distinguished_name = dn
+req_extensions     = req_ext
+
+[ dn ]
+CN = $CN
+O = $ORG
+OU = $OU
+C = $C
+
+[ req_ext ]
+subjectAltName = @alt_names
+
+[ alt_names ]
+$(echo -e "$ALT_NAMES")
+EOF
+
+echo "Wygenerowano $TEMPLATE"
+
+
+
+--------------------
 if ! command -v getent && ! command -v host && ! command -v dig; then
   echo "Brak narzędzi do rozwiązywania nazw (getent, host, dig)!" >&2
   exit 1
