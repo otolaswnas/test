@@ -1,78 +1,49 @@
 #!/bin/bash
 
-set -e
+# Parametry (możesz przekazać jako zmienne środowiskowe lub argumenty)
+CERT="server.crt"
+KEY="server.key"
+CA="ca.crt"
+P12="server.p12"
+P12_ALIAS="myserver"
+P12_PASS="p12haslo"
+KEYSTORE="keystore.jks"
+KEYSTORE_PASS="keystorehaslo"
+TRUSTSTORE="truststore.jks"
+TRUSTSTORE_PASS="truststorehaslo"
+TRUSTSTORE_ALIAS="myca"
 
-# Parametry certyfikatu
-ORG="MyOrg"
-C="PL"
-OU="IT"
-CN="multi-host"
-TEMPLATE="all_hosts_csr.cnf"
+# 1. Tworzenie PKCS#12
+openssl pkcs12 -export \
+  -in "$CERT" \
+  -inkey "$KEY" \
+  -certfile "$CA" \
+  -name "$P12_ALIAS" \
+  -out "$P12" \
+  -password pass:"$P12_PASS"
 
-# Pobierz ścieżkę do inventory (domyślnie inventory.json lub inventory.yaml)
-INVENTORY="${1:-inventory.json}"
+echo "PKCS#12 zapisany jako $P12"
 
-# Jeśli plik jest YAML, konwertuj do JSON
-if [[ "$INVENTORY" =~ \.ya?ml$ ]]; then
-  TMP_JSON=$(mktemp)
-  python3 -c "
-import sys, yaml, json
-with open('$INVENTORY') as f:
-    json.dump(yaml.safe_load(f), sys.stdout)
-" > "$TMP_JSON"
-  INVENTORY="$TMP_JSON"
-fi
+# 2. Tworzenie keystore JKS z PKCS#12
+keytool -importkeystore \
+  -deststorepass "$KEYSTORE_PASS" \
+  -destkeypass "$KEYSTORE_PASS" \
+  -destkeystore "$KEYSTORE" \
+  -srckeystore "$P12" \
+  -srcstoretype PKCS12 \
+  -srcstorepass "$P12_PASS" \
+  -alias "$P12_ALIAS" \
+  -noprompt
 
-# Wyciągnij FQDN-y z inventory.json
-fqdns=($(jq -r 'to_entries[] | select(.value.hosts) | .value.hosts | to_entries[] | .value["ansible-hostname"]' "$INVENTORY" | sort -u))
+echo "Keystore JKS zapisany jako $KEYSTORE"
 
-# Przygotuj sekcję alt_names
-ALT_NAMES=""
-n=1
-for fqdn in "${fqdns[@]}"; do
-  ALT_NAMES+="DNS.$n = $fqdn\n"
-  # Rozwiąż IP (getent, host, dig)
-  ip=$(getent hosts "$fqdn" 2>/dev/null | awk '{print $1}')
-  if [ -z "$ip" ]; then
-    ip=$(host "$fqdn" 2>/dev/null | awk '/has address/ {print $4; exit}')
-  fi
-  if [ -z "$ip" ]; then
-    ip=$(dig +short "$fqdn" 2>/dev/null | head -n1)
-  fi
-  if [ -n "$ip" ]; then
-    ALT_NAMES+="IP.$n = $ip\n"
-  fi
-  ((n++))
-done
+# 3. Tworzenie truststore JKS i import CA
+keytool -importcert \
+  -trustcacerts \
+  -alias "$TRUSTSTORE_ALIAS" \
+  -file "$CA" \
+  -keystore "$TRUSTSTORE" \
+  -storepass "$TRUSTSTORE_PASS" \
+  -noprompt
 
-# Usuń ostatni znak nowej linii
-ALT_NAMES=$(echo -e "$ALT_NAMES" | sed '$!s/$/\\/' | tr -d '\\')
-
-# Przygotuj plik konfiguracyjny
-cat > $TEMPLATE <<EOF
-[ req ]
-default_bits       = 2048
-prompt             = no
-default_md         = sha256
-distinguished_name = dn
-req_extensions     = req_ext
-
-[ dn ]
-CN = $CN
-O = $ORG
-OU = $OU
-C = $C
-
-[ req_ext ]
-subjectAltName = @alt_names
-
-[ alt_names ]
-$(echo -e "$ALT_NAMES")
-EOF
-
-echo "Wygenerowano $TEMPLATE"
-
-# Usuń tymczasowy plik JSON, jeśli był użyty
-if [[ -n "$TMP_JSON" && -f "$TMP_JSON" ]]; then
-  rm -f "$TMP_JSON"
-fi
+echo "Truststore JKS zapisany jako $TRUSTSTORE"
