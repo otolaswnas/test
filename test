@@ -1,4 +1,34 @@
 #!/bin/bash
+# Skrypt: pokazuje szczegóły wszystkich certyfikatów w pliku PEM
+# Użycie: ./show_certs.sh plik.pem
+
+# Sprawdzenie argumentów
+if [ $# -ne 1 ]; then
+    echo "Użycie: $0 plik_z_cert.pem"
+    exit 1
+fi
+
+CERT_FILE="$1"
+
+# Sprawdzenie czy plik istnieje
+if [ ! -f "$CERT_FILE" ]; then
+    echo "Błąd: plik '$CERT_FILE' nie istnieje"
+    exit 1
+fi
+
+# Przetwarzanie certyfikatów po kolei
+csplit -f cert_part_ -b "%02d.pem" "$CERT_FILE" '/-----BEGIN CERTIFICATE-----/' '{*}' > /dev/null 2>&1
+
+for cert in cert_part_*.pem; do
+    if grep -q "BEGIN CERTIFICATE" "$cert"; then
+        echo "========== Certyfikat: $cert =========="
+        openssl x509 -noout -text -in "$cert"
+        echo ""  # pusty wiersz między certyfikatami
+    fi
+    rm -f "$cert"  # usuwanie pliku tymczasowego
+done
+-------------
+#!/bin/bash
 
 # Parametry (możesz przekazać jako zmienne środowiskowe lub argumenty)
 CERT="server.crt"
