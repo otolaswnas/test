@@ -1,3 +1,24 @@
+max(
+  (
+    increase(kafka_server_BrokerTopicMetrics_MessagesInTotal{job="kafka-broker"}[5m]) >= 0
+    > bool 0
+  )
+  or on() (absent(kafka_server_BrokerTopicMetrics_MessagesInTotal{job="kafka-broker"}) * 0)
+)
+
+--
+
+max(
+  (
+    (kafka_controller_KafkaController_activeControllerCount{job="kafka-controller"} == 1)
+    > bool 0
+  )
+  or on() (absent(kafka_controller_KafkaController_activeControllerCount{job="kafka-controller"}) * 0)
+)
+
+--------------------------------
+
+
 (prometheus_build_info{job="prometheus"} == 1)
 and (process_start_time_seconds{job="prometheus"} > 0)
 and (increase(prometheus_tsdb_head_samples_appended_total{job="prometheus"}[5m]) > 0)
