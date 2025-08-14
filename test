@@ -1,19 +1,21 @@
 max(
   (
-    increase(kafka_server_BrokerTopicMetrics_MessagesInTotal{job="kafka-broker"}[5m]) >= 0
+    (kafka_server_BrokerState{instance="broker1:7071"} >= 0)
+    and on (instance) (rate(kafka_server_BrokerTopicMetrics_BytesInTotal{instance="broker1:7071"}[5m]) > 0)
     > bool 0
   )
-  or on() (absent(kafka_server_BrokerTopicMetrics_MessagesInTotal{job="kafka-broker"}) * 0)
+  or on() (absent(kafka_server_BrokerState{instance="broker1:7071"}) * 0)
 )
 
 --
 
 max(
   (
-    (kafka_controller_KafkaController_activeControllerCount{job="kafka-controller"} == 1)
+    (kafka_controller_ControllerStats_activeControllerCount{instance="controller1:7071"} >= 0)
+    and on (instance) (rate(kafka_server_BrokerTopicMetrics_BytesInTotal{instance="controller1:7071"}[5m]) > 0)
     > bool 0
   )
-  or on() (absent(kafka_controller_KafkaController_activeControllerCount{job="kafka-controller"}) * 0)
+  or on() (absent(kafka_controller_ControllerStats_activeControllerCount{instance="controller1:7071"}) * 0)
 )
 
 --------------------------------
