@@ -1,3 +1,40 @@
+#!/bin/bash
+
+VAULT_ADDR="http://vault.example.com:8200"
+VAULT_USER="twoj_uzytkownik"
+VAULT_PASS="twoje_haslo"
+SECRET_PATH="secret/data/mysecret"  # zmień jeśli KV v1 na: secret/mysecret
+
+# 1. Logowanie
+VAULT_TOKEN=$(curl -s \
+  --request POST \
+  --data "{\"password\": \"${VAULT_PASS}\"}" \
+  "${VAULT_ADDR}/v1/auth/userpass/login/${VAULT_USER}" \
+  | jq -r '.auth.client_token')
+
+if [ -z "$VAULT_TOKEN" ] || [ "$VAULT_TOKEN" == "null" ]; then
+  echo "❌ Błąd: nie udało się pobrać tokena" >&2
+  exit 1
+fi
+
+echo "✅ Token pobrany: $VAULT_TOKEN"
+
+# 2. Pobranie sekretu
+RESPONSE=$(curl -s \
+  -H "X-Vault-Token: ${VAULT_TOKEN}" \
+  "${VAULT_ADDR}/v1/${SECRET_PATH}")
+
+echo "🔍 Pełna odpowiedź z Vault:"
+echo "$RESPONSE" | jq .
+
+# 3. Jeśli KV v2 - same dane:
+if [[ "$SECRET_PATH" == *"data/"* ]]; then
+  echo "📦 Dane sekreta:"
+  echo "$RESPONSE" | jq -r '.data.data'
+fi
+
+
+------
 max(
   (
     (kafka_server_BrokerState{instance="broker1:7071"} >= 0)
