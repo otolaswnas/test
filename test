@@ -1,3 +1,8 @@
+(prometheus_build_info{job="prometheus"} == 1)
+and (process_start_time_seconds{job="prometheus"} > 0)
+and (increase(prometheus_tsdb_head_samples_appended_total{job="prometheus"}[5m]) > 0)
+and (increase(prometheus_target_scrapes_total{job="prometheus"}[5m]) > 0)
+--------------------
 #!/bin/bash
 # Skrypt: pokazuje szczegóły wszystkich certyfikatów w pliku PEM
 # Użycie: ./show_certs.sh plik.pem
