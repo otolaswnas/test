@@ -1,4 +1,41 @@
+# rozbij na pojedyncze certy
+csplit -s -f part- -b %02d.pem bundle.pem '/-----BEGIN CERTIFICATE-----/' '{*}'
 
+# wypisz Subject/Issuer/ważność/BasicConstraints/EKU
+for f in part-*.pem; do
+  echo "=== $f ==="
+  openssl x509 -in "$f" -noout -subject -issuer -enddate \
+    -ext basicConstraints -ext extendedKeyUsage || true
+done
+
+
+
+
+cat int1.pem int2.pem > chain-clean.pem   # bez starego/wygasłego
+
+# PKCS#12 z łańcuchem
+openssl pkcs12 -export \
+  -inkey client.key -in leaf.pem \
+  -certfile chain-clean.pem -chain \
+  -name client \
+  -out client.p12 -passout pass:changeit
+
+
+openssl pkcs12 -in client.p12 -nokeys -clcerts -info -passin pass:changeit | openssl x509 -noout -subject -issuer
+
+
+
+keytool -importkeystore \
+  -srckeystore client.p12 -srcstoretype PKCS12 -srcstorepass changeit \
+  -destkeystore keystore.jks -deststoretype JKS -deststorepass changeit \
+  -alias client
+
+# sprawdź, że jest PrivateKeyEntry i chain > 1
+keytool -list -v -keystore keystore.jks -storepass changeit -alias client | \
+  egrep 'Entry type:|Certificate chain length:|Owner:|Issuer:'
+
+
+---------------------------------------
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
