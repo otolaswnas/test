@@ -1,3 +1,111 @@
+
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+usage() {
+  cat <<EOF
+Użycie: $0 -k <keystore> [-t JKS|PKCS12] [-p <hasło>] [-w <dni_ostrzeżenia>]
+Przykład: $0 -k keystore.jks -t JKS
+EOF
+}
+
+KS="" ; TYPE="" ; PASS="" ; WARN_DAYS=30
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -k|--keystore) KS="$2"; shift 2;;
+    -t|--type)     TYPE="$2"; shift 2;;
+    -p|--password) PASS="$2"; shift 2;;
+    -w|--warn)     WARN_DAYS="$2"; shift 2;;
+    -h|--help)     usage; exit 0;;
+    *) echo "Nieznany parametr: $1" >&2; usage; exit 1;;
+  esac
+done
+
+[[ -z "$KS" ]] && { echo "Podaj -k <keystore>" >&2; usage; exit 1; }
+command -v keytool >/dev/null || { echo "Brak keytool w PATH" >&2; exit 1; }
+if ! command -v openssl >/dev/null; then
+  echo "Uwaga: brak openssl – część pól będzie ograniczona." >&2
+fi
+
+# Domyśl rozpoznanie typu po rozszerzeniu, jeśli nie podano
+if [[ -z "$TYPE" ]]; then
+  case "${KS##*.}" in
+    jks|JKS) TYPE="JKS" ;;
+    p12|P12|pfx|PFX) TYPE="PKCS12" ;;
+    *) TYPE="" ;; # keytool spróbuje sam
+  esac
+fi
+
+# Hasło – poproś jeśli nie podane
+if [[ -z "$PASS" ]]; then
+  read -r -s -p "Hasło do keystore: " PASS; echo
+fi
+
+export LC_ALL=C
+
+KT_ARGS=(-keystore "$KS" -storepass "$PASS")
+[[ -n "$TYPE" ]] && KT_ARGS+=(-storetype "$TYPE")
+
+# Sprawdź dostęp
+if ! keytool -list "${KT_ARGS[@]}" >/dev/null 2>&1; then
+  echo "Błąd: nieprawidłowe hasło/typ/plik (albo keystore uszkodzony)" >&2
+  exit 1
+fi
+
+# Pobierz aliasy
+mapfile -t ALIASES < <(keytool -list -v "${KT_ARGS[@]}" 2>/dev/null | awk -F': ' '/^Alias name:/{print $2}')
+if [[ ${#ALIASES[@]} -eq 0 ]]; then
+  echo "Brak aliasów w keystore lub brak uprawnień." >&2
+  exit 0
+fi
+
+NOW_EPOCH=$(date +%s)
+
+for alias in "${ALIASES[@]}"; do
+  META=$(keytool -list -v -alias "$alias" "${KT_ARGS[@]}" 2>/dev/null || true)
+  ENTRY_TYPE=$(awk -F': ' '/^Entry type:/{print $2}' <<<"$META")
+  CHAIN_LEN=$(awk -F': ' '/^Certificate chain length:/{print $2}' <<<"$META")
+  [[ -z "$CHAIN_LEN" ]] && CHAIN_LEN=1
+
+  echo "----------------------------------------"
+  echo "Alias:        $alias"
+  echo "Typ wpisu:    ${ENTRY_TYPE:-nieznany}"
+  echo "Dł. łańcucha: $CHAIN_LEN"
+
+  if command -v openssl >/dev/null; then
+    # wyeksportuj cert (leaf) i wypisz parametry
+    if PEM=$(keytool -exportcert -alias "$alias" "${KT_ARGS[@]}" -rfc 2>/dev/null); then
+      SUBJECT=$(openssl x509 -noout -subject    <<<"$PEM" | sed 's/^subject= //')
+      ISSUER=$(openssl  x509 -noout -issuer     <<<"$PEM" | sed 's/^issuer= //')
+      NB=$(openssl      x509 -noout -startdate  <<<"$PEM" | cut -d= -f2)
+      NA=$(openssl      x509 -noout -enddate    <<<"$PEM" | cut -d= -f2)
+      SERIAL=$(openssl  x509 -noout -serial     <<<"$PEM" | cut -d= -f2)
+      FP=$(openssl      x509 -noout -fingerprint -sha256 <<<"$PEM" | cut -d= -f2)
+
+      echo "Subject:      $SUBJECT"
+      echo "Issuer:       $ISSUER"
+      echo "Serial:       $SERIAL"
+      echo "Not Before:   $NB"
+      echo "Not After:    $NA"
+
+      # policz dni do wygaśnięcia (GNU date)
+      if END_EPOCH=$(date -d "$NA" +%s 2>/dev/null); then
+        DAYS_LEFT=$(( (END_EPOCH - NOW_EPOCH) / 86400 ))
+        echo "Pozostało:    ${DAYS_LEFT} dni"
+        if (( DAYS_LEFT <= WARN_DAYS )); then
+          echo "UWAGA: certyfikat wygaśnie w ${DAYS_LEFT} dni!"
+        fi
+      fi
+      echo "SHA256 FP:    $FP"
+    else
+      echo "Nie udało się wyeksportować certyfikatu (alias: $alias)."
+    fi
+  else
+    # Fallback bez openssl – ograniczone info z keytool -list -v
+    echo "$(sed -n -e 's/^Owner: \+//p' -e 's/^Subject: \+//p' -e 's/^Issuer: \+//p' -e 's/^Serial number: \+//p' -e 's/^Valid from: \+//p' <<<"$META")"
+  fi
+done
+------------------
 #!/bin/bash
 
 VAULT_ADDR="http://vault.example.com:8200"
