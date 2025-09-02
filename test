@@ -1,3 +1,6 @@
+ssl.principal.mapping.rules=RULE:^.CN=([^,]+).$/$1/L,DEFAULT
+
+--------------------------
 # rozbij na pojedyncze certy
 csplit -s -f part- -b %02d.pem bundle.pem '/-----BEGIN CERTIFICATE-----/' '{*}'
 
