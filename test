@@ -1,3 +1,71 @@
+oniżej masz “jak to działa” i gotowe wzorce do wycięcia CN z DN w ssl.principal.mapping.rules na brokerze Kafka (KRaft lub ZK).
+
+Co Kafka mapuje
+
+Reguły działają na Subject DN certyfikatu klienta (kanoniczny format RFC2253), np.:
+CN=Janek,OU=Team,O=Example,L=Warszawa,ST=Mazowieckie,C=PL
+Mapowanie nie używa SAN – tylko DN.
+Gdzie ustawić
+
+Globalnie (dla wszystkich listenerów):
+ssl.principal.mapping.rules=...
+Lub per-listener (nadpisuje globalne):
+listener.name.<nazwa>.ssl.principal.mapping.rules=...
+Pamiętaj o tym samym ustawieniu na wszystkich brokerach.
+Najprostsza, najczęściej wystarczająca reguła (CN do małych liter)
+
+Wytnie wszystko, co po CN= aż do pierwszego przecinka:
+ssl.principal.mapping.rules=RULE:^.CN=([^,]+).$/$1/L,DEFAULT
+Efekt: CN=Janek → principal “janek” (L = lowercase)
+Bardziej odporna (CN może mieć przecinki escapowane “, …”)
+
+W properties musisz podwoić backslashe.
+Reguła “escapowane znaki lub cokolwiek poza przecinkiem”:
+ssl.principal.mapping.rules=RULE:^.CN=((?:\\.|[^,]))\s*(?:,.*)?$/$1/L,DEFAULT
+Wyjaśnienie:
+(?:\\.|[^,])* → dopasuj sekwencję “\x” lub każdy znak poza przecinkiem
+/L → wynik na małe litery
+W pliku .properties backslash trzeba podwoić (\\, by trafił do Javy jako \
+Przykłady innych transformacji
+
+CN+OU → “ou_cn”, małymi:
+ssl.principal.mapping.rules=RULE:^.CN=([^,]+),OU=([^,]+).$/$2_$1/L,DEFAULT
+Jeśli chcesz zachować wielkość liter: usuń /L.
+Kilka reguł naraz
+
+Kafka przetwarza je od lewej do prawej; pierwsza dopasowana wygrywa.
+ssl.principal.mapping.rules=RULE:^.CN=([^,]+),OU=([^,]+).$/$2_$1/L,RULE:^.CN=([^,]+).$/$1/L,DEFAULT
+Na co uważać
+
+Escaping w .properties: jeśli używasz backslashy w regexie (np. \.), w pliku musisz je podwoić (\\.
+Wynik mapowania musi 1:1 pasować do super.users/ACL (zwróć uwagę na /L → małe litery).
+Mapowanie działa tylko przy SSL mTLS. Jeśli klient używa SASL_SSL, principal pochodzi z SASL (username), a nie z CN.
+Jak sprawdzić, co broker faktycznie “widzi”
+
+Włącz tymczasowo DEBUG loggerów (bez restartu):
+kafka-configs.sh --bootstrap-server broker:port --alter
+--entity-type broker-loggers --entity-name <brokerId>
+--add-config 'org.apache.kafka.common.security.authenticator=DEBUG,kafka.authorizer.logger=DEBUG'
+W server.log zobaczysz:
+Authenticated client ... via SSL, principal=User:<wartość> ← to wpisujesz do super.users/ACL
+Authorized/Denied ... for principal=User:<wartość> ← decyzje autoryzera
+Po teście usuń/obniż logowanie:
+kafka-configs.sh --bootstrap-server broker:port --alter
+--entity-type broker-loggers --entity-name <brokerId>
+--delete-config 'org.apache.kafka.common.security.authenticator,kafka.authorizer.logger'
+Szybki “offline” podgląd DN (jak Kafka go formatuje)
+
+openssl x509 -in client.crt.pem -noout -subject -nameopt RFC2253
+subject=CN=Janek,OU=Team,O=Example,C=PL
+Checklist końcowa
+
+Ustaw regułę (globalnie lub per-listener) spójną na wszystkich brokerach.
+Dopasuj super.users/ACL do wyniku (np. User:janek).
+Upewnij się, że klient naprawdę używa mTLS (security.protocol=SSL oraz keystore/truststore ustawione) – w logu klienta z -Djavax.net.debug=ssl zobaczysz „Sending client certificate”.
+Chcesz, żebym policzył dokładny principal dla konkretnego DN? Wklej swój DN (subject) i powiem, co zwróci każda z powyższych reguł.
+
+
+----------------------------
 ssl.principal.mapping.rules=RULE:^.CN=([^,]+).$/$1/L,DEFAULT
 
 --------------------------
