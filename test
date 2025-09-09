@@ -1,3 +1,22 @@
+(
+  sum by () (
+    (
+      (count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0)
+    *
+      (
+        (max by (instance) (increase(thanos_compact_group_compactions_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902", result="error"}[15m]) == bool 0))
+        or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} * 0 + 1))
+      )
+    *
+      (
+        (max by (instance) (increase(thanos_objstore_bucket_operation_failures_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}[15m]) == bool 0))
+        or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} * 0 + 1))
+      )
+    )
+  ) > bool 0
+)
+
+---------------
 oniżej masz “jak to działa” i gotowe wzorce do wycięcia CN z DN w ssl.principal.mapping.rules na brokerze Kafka (KRaft lub ZK).
 
 Co Kafka mapuje
