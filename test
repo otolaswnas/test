@@ -1,3 +1,63 @@
+# Ri: 0/1 per instancja — czy proces wystawia metryki (build_info)
+# Hi: 0/1 per instancja — czy instancja jest halted (brak metryki => 0 dla działającej instancji)
+# r  = suma Ri (0..2)       — ile instancji działa
+# hr = suma (Ri * Hi) (0..2)— ile działających instancji jest halted
+
+# Zbiorcze liczniki z fallbackiem do 0 (or vector(0)):
+(
+  3 * ( (sum by () ( count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0 ) >= bool 2 ) or vector(0) )
+)
++
+(
+  # część na przypadek „działa dokładnie 1 instancja”
+  ( (sum by () ( count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0 )) == bool 1 or vector(0) )
+  *
+  (
+    # zlicz działające instancje, które są halted: hr = sum(Ri * Hi)
+    # Hi z fallbackiem do 0 dla działających instancji, jeśli metryka halted nie istnieje
+    2 * (
+      (
+        sum by () (
+          ( count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0 )
+          *
+          (
+            (
+              max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0)
+            )
+            or on (instance)
+            (
+              ( count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0 ) * 0
+            )
+          )
+        )
+      ) == bool 0
+      or vector(0)
+    )
+    +
+    1 * (
+      (
+        sum by () (
+          ( count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0 )
+          *
+          (
+            (
+              max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0)
+            )
+            or on (instance)
+            (
+              ( count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0 ) * 0
+            )
+          )
+        )
+      ) >= bool 1
+      or vector(0)
+    )
+  )
+)
+
+
+
+------------------------
 3 * (
   max by () (
     max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0)
