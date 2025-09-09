@@ -1,3 +1,36 @@
+# halted_i: 0/1 per instancja
+(
+  (max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0))
+  or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
+)  * 2
++
+# ok_i: 0/1 per instancja (tylko jeśli NIE jest halted)
+(1 -
+  ( (max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0))
+    or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
+  )
+)
+*
+(
+  (
+    (count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0)
+  *
+    (
+      (max by (instance) (increase(thanos_compact_group_compactions_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902", result="error"}[15m]) == bool 0))
+      or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
+    )
+  *
+    (
+      (max by (instance) (increase(thanos_objstore_bucket_operation_failures_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}[15m]) == bool 0))
+      or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
+    )
+  )
+  or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
+)
+
+
+
+---------------------------------------------
 # any_halted: 1 gdy którakolwiek instancja ma halted
 (
   max by () (
