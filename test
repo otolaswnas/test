@@ -1,4 +1,39 @@
 sum by () (
+  (
+    (count by (instance) (thanos_build_info{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"}) > bool 0)
+  *
+    (
+      max by (instance) (thanos_sidecar_prometheus_up{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"} == bool 1)
+      or on (instance) (max by (instance) (up{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"} * 0 + 1))
+    )
+  *
+    (
+      (sum by (instance) (
+        increase(grpc_server_handled_total{
+          instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090",
+          grpc_code!="OK",
+          grpc_service="thanos.Store"
+        }[15m])
+      ) == bool 0)
+      or on (instance) (max by (instance) (up{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"} * 0 + 1))
+    )
+  *
+    (
+      (sum by (instance) (increase(thanos_shipper_upload_failures_total{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"}[30m])) == bool 0)
+      or on (instance) (max by (instance) (up{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"} * 0 + 1))
+    )
+  *
+    (
+      (sum by (instance) (increase(thanos_objstore_bucket_operation_failures_total{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"}[30m])) == bool 0)
+      or on (instance) (max by (instance) (up{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"} * 0 + 1))
+    )
+  )
+  or on (instance)
+    (max by (instance) (up{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"} * 0))
+)
+
+-------------------
+sum by () (
 (
 (count by (instance) (thanos_build_info{instance=~"15\.10\.10\.10:9090|15\.10\.10\.11:9090"}) > bool 0)
 (
