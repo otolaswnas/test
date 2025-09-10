@@ -1,5 +1,30 @@
 sum by () (
   (
+    max by (instance) (kafka_server_kafkaserver_brokerstate{instance=~"50\.10\.10\.(10|11|12):21005"} >= bool 3)
+  *
+    (
+      max by (instance) (kafka_server_replicamanager_underreplicatedpartitions{instance=~"50\.10\.10\.(10|11|12):21005"} == bool 0)
+      or on (instance) (max by (instance) (jvm_info{instance=~"50\.10\.10\.(10|11|12):21005"} * 0 + 1))
+    )
+  *
+    (
+      (sum by (instance) (increase(kafka_server_brokertopicmetrics_failedproducerequestspersec{instance=~"50\.10\.10\.(10|11|12):21005"}[5m])) == bool 0)
+      or on (instance) (max by (instance) (jvm_info{instance=~"50\.10\.10\.(10|11|12):21005"} * 0 + 1))
+    )
+  *
+    (
+      (sum by (instance) (increase(kafka_server_brokertopicmetrics_failedfetchrequestspersec{instance=~"50\.10\.10\.(10|11|12):21005"}[5m])) == bool 0)
+      or on (instance) (max by (instance) (jvm_info{instance=~"50\.10\.10\.(10|11|12):21005"} * 0 + 1))
+    )
+  )
+  or on (instance)
+    (max by (instance) (jvm_info{instance=~"50\.10\.10\.(10|11|12):21005"} * 0))
+)
+
+
+-----------------------
+sum by () (
+  (
     (count by (instance) (thanos_build_info{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"}) > bool 0)
   *
     (
