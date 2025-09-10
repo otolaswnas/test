@@ -1,3 +1,25 @@
+# ile procesów controller wystawia metryki
+present_sum = sum by () (count by (instance) (jvm_info{instance=~"60\.10\.10\.(10|11|12):21005"}))
+
+# suma active controller (dopasuj do wersji: legacy vs KRaft)
+active_sum = sum by () (
+  max by (instance) (
+    (kafka_controller_kafkacontroller_activecontrollercount{instance=~"60\.10\.10\.(10|11|12):21005"})
+    or
+    (kafka_controller_controllerquorum_activecontrollercount{instance=~"60\.10\.10\.(10|11|12):21005"})
+  )
+)
+
+3 * (active_sum >= bool 2)
++
+2 * ((active_sum == bool 1) and (present_sum >= bool 3))
++
+1 * ((active_sum == bool 1) and (present_sum <= bool 2))
++
+0 * (active_sum == bool 0)
+
+------------------------------------------
+
 sum by () (
   (
     max by (instance) (kafka_server_kafkaserver_brokerstate{instance=~"50\.10\.10\.(10|11|12):21005"} >= bool 3)
