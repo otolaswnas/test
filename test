@@ -1,8 +1,10 @@
-(
-  (scalar(sum(count_over_time(grpc_server_handled_total{grpc_service=~"gitaly\\..*"}[5m]))) > bool 0)
-+
-  (scalar(sum(count_over_time({__name__=~"gitaly_.*"}[5m]))) > bool 0)
-) >= bool 1
+max by () (
+  label_replace( (sum by () (count_over_time(grpc_server_handled_total{grpc_service=~"gitaly\\..*"}[5m])) > bool 0),
+                 "src","a","__name__",".*" )
+or
+  label_replace( (sum by () (count_over_time({__name__=~"gitaly_.*"}[5m])) > bool 0),
+                 "src","b","__name__",".*" )
+)
 ------------
 (
   sum(increase(gitlab_workhorse_http_requests_total{job=~"gitlab.*workhorse.*", status=~"2..|3.."}[5m]))
