@@ -1,3 +1,10 @@
+(
+  sum(increase(gitlab_workhorse_http_requests_total{job=~"gitlab.*workhorse.*", status=~"2..|3.."}[5m]))
+/
+  sum(increase(gitlab_workhorse_http_requests_total{job=~"gitlab.*workhorse.*"}[5m]))
+) >= bool 0.99
+
+--------------------------
 2 * (((max by () (max_over_time(elasticsearch_cluster_health_status{cluster="es-prod", color="green"}[30s]))) > bool 0) or vector(0))
 + (1 - (((max by () (max_over_time(elasticsearch_cluster_health_status{cluster="es-prod", color="green"}[30s]))) > bool 0) or vector(0)))
   * (((max by () (max_over_time(elasticsearch_cluster_health_status{cluster="es-prod", color="yellow"}[30s]))) > bool 0) or vector(0))
