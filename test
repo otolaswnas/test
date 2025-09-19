@@ -1,3 +1,99 @@
+spec:
+  template:
+    spec:
+      volumes:
+      - name: tools
+        emptyDir: {}
+      - name: metrics-dir
+        emptyDir: {}
+      - name: apm-output-script
+        configMap:
+          name: apm-kafka-output-check
+          defaultMode: 0755
+      # (pozostałe istniejące wolumeny APM – config/secrety – zostaw bez zmian)
+      initContainers:
+      - name: toolbox
+        image: busybox:1.36
+        command: ["sh","-c","cp /bin/busybox /tools/busybox && chmod +x /tools/busybox"]
+        volumeMounts:
+        - { name: tools, mountPath: /tools }
+      containers:
+      - name: apm-server
+        # image: docker.elastic.co/apm/apm-server:8.x  (Twój istniejący)
+        env:
+        - name: OCP_CLUSTER
+          value: "ocp-prod-1"                     # <- Twoja nazwa klastra OCP
+        - name: POD_NAMESPACE
+          valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+        - name: INTERVAL_SECONDS
+          value: "300"                             # zmień na "86400" = raz dziennie
+        # (opcjonalnie) APM_CFG jeśli path inny niż domyślny:
+        # - name: APM_CFG
+        #   value: "/usr/share/apm-server/apm-server.yml"
+        volumeMounts:
+        - { name: tools, mountPath: /tools }
+        - { name: metrics-dir, mountPath: /metrics }
+        - { name: apm-output-script, mountPath: /opt/apm-kafka-output.sh, subPath: apm-kafka-output.sh }
+        # (pozostałe existing mounts APM zostaw bez zmian: config/secret dla Kafka itp.)
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh","-c","/opt/apm-kafka-output.sh >/dev/null 2>&1 &"]
+        ports:
+        - containerPort: 8888
+          name: metrics-8888
+          protocol: TCP
+
+
+
+-------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apm-kafka-output-check
+data:
+  apm-kafka-output.sh: |
+    #!/bin/sh
+    set -eu
+    APM_BIN="${APM_BIN:-/usr/share/apm-server/apm-server}"
+    APM_CFG="${APM_CFG:-/usr/share/apm-server/apm-server.yml}"
+    METRICS_DIR="${METRICS_DIR:-/metrics}"
+    PORT="${PORT:-8888}"
+    INTERVAL_SECONDS="${INTERVAL_SECONDS:-300}"   # zmień na 86400, jeśli raz dziennie
+    CLUSTER="${OCP_CLUSTER:-unknown}"
+    NAMESPACE="${POD_NAMESPACE:-unknown}"
+
+    mkdir -p "$METRICS_DIR"
+    # Start lekki serwer HTTP (BusyBox httpd skopiowany przez initContainer do /tools)
+    /tools/busybox httpd -f -p "$PORT" -h "$METRICS_DIR" &
+    HTTPD_PID=$!
+    trap 'kill $HTTPD_PID 2>/dev/null || true; exit 0' INT TERM
+
+    while true; do
+      # Uruchom test; WARN o TLS jest normalny i nie wpływa na exit code
+      OUT="$("$APM_BIN" test output -c "$APM_CFG" 2>&1 || true)"
+      RC=$?
+      # Wyciągnij liczbę "reachable brokers" (jeśli apm ją wypisał)
+      BROKERS=$(printf '%s\n' "$OUT" | awk '/brokers/{for(i=1;i<=NF;i++) if($i ~ /^[0-9]+$/){print $i; exit}}')
+      [ -z "${BROKERS:-}" ] && BROKERS=0
+      OK=$([ $RC -eq 0 ] && echo 1 || echo 0)
+      TS=$(date +%s)
+
+      cat > "$METRICS_DIR/metrics" <<EOF
+# HELP apm_kafka_output_ok 1 if apm-server test output succeeded (exit code 0)
+# TYPE apm_kafka_output_ok gauge
+apm_kafka_output_ok{cluster="${CLUSTER}",namespace="${NAMESPACE}"} $OK
+# HELP apm_kafka_output_reachable_brokers Brokers reported as reachable by test output
+# TYPE apm_kafka_output_reachable_brokers gauge
+apm_kafka_output_reachable_brokers{cluster="${CLUSTER}",namespace="${NAMESPACE}"} $BROKERS
+# HELP apm_kafka_output_last_run_ts Unix time of last test execution
+# TYPE apm_kafka_output_last_run_ts gauge
+apm_kafka_output_last_run_ts{cluster="${CLUSTER}",namespace="${NAMESPACE}"} $TS
+EOF
+      sleep "$INTERVAL_SECONDS"
+    done
+
+-------------------
 max by () (
   label_replace( (sum by () (count_over_time(grpc_server_handled_total{grpc_service=~"gitaly\\..*"}[5m])) > bool 0),
                  "src","a","__name__",".*" )
