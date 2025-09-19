@@ -1,905 +1,450 @@
-spec:
-  template:
-    spec:
-      volumes:
-      - name: tools
-        emptyDir: {}
-      - name: metrics-dir
-        emptyDir: {}
-      - name: apm-output-script
-        configMap:
-          name: apm-kafka-output-check
-          defaultMode: 0755
-      # (pozostałe istniejące wolumeny APM – config/secrety – zostaw bez zmian)
-      initContainers:
-      - name: toolbox
-        image: busybox:1.36
-        command: ["sh","-c","cp /bin/busybox /tools/busybox && chmod +x /tools/busybox"]
-        volumeMounts:
-        - { name: tools, mountPath: /tools }
-      containers:
-      - name: apm-server
-        # image: docker.elastic.co/apm/apm-server:8.x  (Twój istniejący)
-        env:
-        - name: OCP_CLUSTER
-          value: "ocp-prod-1"                     # <- Twoja nazwa klastra OCP
-        - name: POD_NAMESPACE
-          valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
-        - name: INTERVAL_SECONDS
-          value: "300"                             # zmień na "86400" = raz dziennie
-        # (opcjonalnie) APM_CFG jeśli path inny niż domyślny:
-        # - name: APM_CFG
-        #   value: "/usr/share/apm-server/apm-server.yml"
-        volumeMounts:
-        - { name: tools, mountPath: /tools }
-        - { name: metrics-dir, mountPath: /metrics }
-        - { name: apm-output-script, mountPath: /opt/apm-kafka-output.sh, subPath: apm-kafka-output.sh }
-        # (pozostałe existing mounts APM zostaw bez zmian: config/secret dla Kafka itp.)
-        lifecycle:
-          postStart:
-            exec:
-              command: ["/bin/sh","-c","/opt/apm-kafka-output.sh >/dev/null 2>&1 &"]
-        ports:
-        - containerPort: 8888
-          name: metrics-8888
-          protocol: TCP
+Poniżej masz komplet “od A do Z” do uruchomienia APM Server 8.14.3 w trybie offline (bez internetu), jako własny Helm chart. Wystarczy utworzyć pliki w podanych lokalizacjach, podmienić kilka wartości i zainstalować.
 
+Plan
+- przygotuj prosty chart Helm: offline/apm-server/… (pliki poniżej)
+- przygotuj obraz apm-server:8.14.3 w wewnętrznym registry
+- utwórz Secret z certami do Kafki (PEM albo PKCS#12/JKS)
+- zainstaluj: helm upgrade --install …
 
+1) Struktura katalogów
+Utwórz katalogi i pliki (nazwa “offline” dowolna):
+- offline/apm-server/Chart.yaml
+- offline/apm-server/values.yaml
+- offline/apm-server/templates/_helpers.tpl
+- offline/apm-server/templates/configmap.yaml
+- offline/apm-server/templates/deployment.yaml
+- offline/apm-server/templates/service.yaml
+- offline/apm-server/templates/serviceaccount.yaml
+- offline/apm-server/templates/NOTES.txt
 
--------------------------------------------------------
+2) Zawartość plików chartu
+
+offline/apm-server/Chart.yaml
+```yaml
+apiVersion: v2
+name: apm-server
+description: Minimalny offline chart dla Elastic APM Server (8.14.3)
+type: application
+version: 8.14.3
+appVersion: "8.14.3"
+kubeVersion: ">=1.20.0-0"
+```
+
+offline/apm-server/values.yaml
+- Podmień:
+  - .image na Twój wewnętrzny registry (np. registry.local/elastic/apm-server)
+  - hosts Kafki
+  - Secret z certami (kafka-secret-elk) i nazwy plików w nim
+  - jeśli używasz SASL zamiast mTLS – odkomentuj sekcję SASL i wprowadź env (sekcja envFrom)
+```yaml
+replicaCount: 2
+
+image: "registry.local/elastic/apm-server"  # <- Twój wewnętrzny registry
+imageTag: "8.14.3"
+imagePullPolicy: IfNotPresent
+imagePullSecrets: []  # np. [{name: regcred}]
+
+nameOverride: ""
+fullnameOverride: ""
+
+apmConfig:
+  apm-server.yml: |
+    apm-server:
+      host: "0.0.0.0:8200"
+    # Jeśli intake wymaga tokenu:
+    # apm-server.auth.secret_token: "${APM_SECRET_TOKEN}"
+
+    # OUTPUT: Kafka (PEM / mTLS – domyślnie)
+    output.kafka:
+      hosts: ["kafka-1:9093","kafka-2:9093"]
+      topic: "apm-json"
+      ssl.enabled: true
+      ssl.certificate_authorities: ["/usr/share/apm-server/config/kafka-tls/ca-bungle.crt"]
+      ssl.certificate: "/usr/share/apm-server/config/kafka-tls/tls-bungle.crt"
+      ssl.key: "/usr/share/apm-server/config/kafka-tls/tls.key"
+
+      # (ZAMIENNIE: SASL/SCRAM – odkomentuj jeśli używasz)
+      # username: "${KAFKA_USERNAME}"
+      # password: "${KAFKA_PASSWORD}"
+      # sasl.mechanism: "scram-sha-512"
+
+      # (ZAMIENNIE: PKCS#12)
+      # ssl.enabled: true
+      # ssl.keystore.path: "/usr/share/apm-server/config/kafka-tls/client.p12"
+      # ssl.keystore.password: "${KS_PASS}"
+      # (opcjonalnie truststore)
+      # ssl.truststore.path: "/usr/share/apm-server/config/kafka-tls/truststore.p12"
+      # ssl.truststore.password: "${TS_PASS}"
+
+      # (ZAMIENNIE: JKS)
+      # ssl.enabled: true
+      # ssl.keystore.path: "/usr/share/apm-server/config/kafka-tls/client.jks"
+      # ssl.keystore.password: "${KS_PASS}"
+      # ssl.truststore.path: "/usr/share/apm-server/config/kafka-tls/truststore.jks"
+      # ssl.truststore.password: "${TS_PASS}"
+
+# Montujemy Secret z certami/keystore do ścieżek użytych w apm-server.yml
+secretMounts: []
+# Przykład (PEM):
+# secretMounts:
+#   - name: kafka-tls
+#     secretName: kafka-secret-elk
+#     path: /usr/share/apm-server/config/kafka-tls
+#     defaultMode: 0400
+
+# Zmienne (tokeny/hasła z Secretów)
+env: []
+envFrom: []
+# Przykład (sekrety z tokenami/hasłami):
+# envFrom:
+#   - secretRef: { name: apm-env-secrets }
+
+serviceAccount:
+  create: false
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+
+service:
+  type: ClusterIP
+  port: 8200
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1
+    memory: 1Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: 8200
+  initialDelaySeconds: 20
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: 8200
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+# Dodatki (opcjonalnie: extraVolumes/extraContainers np. sidecar /metrics)
+extraVolumes: []
+extraVolumeMounts: []
+extraContainers: []
+```
+
+offline/apm-server/templates/_helpers.tpl
+```yaml
+{{- define "apm-server.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "apm-server.fullname" -}}
+{{- if .Values.fullnameOverride -}}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- $name := include "apm-server.name" . -}}
+{{- if .Release.Name }}{{ printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}{{ else }}{{ $name }}{{ end -}}
+{{- end -}}
+{{- end -}}
+```
+
+offline/apm-server/templates/configmap.yaml
+```yaml
+{{- if .Values.apmConfig }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: apm-kafka-output-check
+  name: {{ include "apm-server.fullname" . }}-config
+  labels:
+    app.kubernetes.io/name: {{ include "apm-server.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
 data:
-  apm-kafka-output.sh: |
-    #!/bin/sh
-    set -eu
-    APM_BIN="${APM_BIN:-/usr/share/apm-server/apm-server}"
-    APM_CFG="${APM_CFG:-/usr/share/apm-server/apm-server.yml}"
-    METRICS_DIR="${METRICS_DIR:-/metrics}"
-    PORT="${PORT:-8888}"
-    INTERVAL_SECONDS="${INTERVAL_SECONDS:-300}"   # zmień na 86400, jeśli raz dziennie
-    CLUSTER="${OCP_CLUSTER:-unknown}"
-    NAMESPACE="${POD_NAMESPACE:-unknown}"
-
-    mkdir -p "$METRICS_DIR"
-    # Start lekki serwer HTTP (BusyBox httpd skopiowany przez initContainer do /tools)
-    /tools/busybox httpd -f -p "$PORT" -h "$METRICS_DIR" &
-    HTTPD_PID=$!
-    trap 'kill $HTTPD_PID 2>/dev/null || true; exit 0' INT TERM
-
-    while true; do
-      # Uruchom test; WARN o TLS jest normalny i nie wpływa na exit code
-      OUT="$("$APM_BIN" test output -c "$APM_CFG" 2>&1 || true)"
-      RC=$?
-      # Wyciągnij liczbę "reachable brokers" (jeśli apm ją wypisał)
-      BROKERS=$(printf '%s\n' "$OUT" | awk '/brokers/{for(i=1;i<=NF;i++) if($i ~ /^[0-9]+$/){print $i; exit}}')
-      [ -z "${BROKERS:-}" ] && BROKERS=0
-      OK=$([ $RC -eq 0 ] && echo 1 || echo 0)
-      TS=$(date +%s)
-
-      cat > "$METRICS_DIR/metrics" <<EOF
-# HELP apm_kafka_output_ok 1 if apm-server test output succeeded (exit code 0)
-# TYPE apm_kafka_output_ok gauge
-apm_kafka_output_ok{cluster="${CLUSTER}",namespace="${NAMESPACE}"} $OK
-# HELP apm_kafka_output_reachable_brokers Brokers reported as reachable by test output
-# TYPE apm_kafka_output_reachable_brokers gauge
-apm_kafka_output_reachable_brokers{cluster="${CLUSTER}",namespace="${NAMESPACE}"} $BROKERS
-# HELP apm_kafka_output_last_run_ts Unix time of last test execution
-# TYPE apm_kafka_output_last_run_ts gauge
-apm_kafka_output_last_run_ts{cluster="${CLUSTER}",namespace="${NAMESPACE}"} $TS
-EOF
-      sleep "$INTERVAL_SECONDS"
-    done
-
--------------------
-max by () (
-  label_replace( (sum by () (count_over_time(grpc_server_handled_total{grpc_service=~"gitaly\\..*"}[5m])) > bool 0),
-                 "src","a","__name__",".*" )
-or
-  label_replace( (sum by () (count_over_time({__name__=~"gitaly_.*"}[5m])) > bool 0),
-                 "src","b","__name__",".*" )
-)
-------------
-(
-  sum(increase(gitlab_workhorse_http_requests_total{job=~"gitlab.*workhorse.*", status=~"2..|3.."}[5m]))
-/
-  sum(increase(gitlab_workhorse_http_requests_total{job=~"gitlab.*workhorse.*"}[5m]))
-) >= bool 0.99
-
---------------------------
-2 * (((max by () (max_over_time(elasticsearch_cluster_health_status{cluster="es-prod", color="green"}[30s]))) > bool 0) or vector(0))
-+ (1 - (((max by () (max_over_time(elasticsearch_cluster_health_status{cluster="es-prod", color="green"}[30s]))) > bool 0) or vector(0)))
-  * (((max by () (max_over_time(elasticsearch_cluster_health_status{cluster="es-prod", color="yellow"}[30s]))) > bool 0) or vector(0))
-
-------------------------------------
-
-3 * (
-  (
-    sum by () (
-      max by (instance) (
-        kafka_controller_kafkacontroller_activecontrollercount{instance=~"60\.10\.10\.(10|11|12):21005"}
-        or
-        kafka_controller_controllerquorum_activecontrollercount{instance=~"60\.10\.10\.(10|11|12):21005"}
-      )
-    ) >= bool 2
-  ) or vector(0)
-)
-+
-(1 -
-  (
-    (
-      sum by () (
-        max by (instance) (
-          kafka_controller_kafkacontroller_activecontrollercount{instance=~"60\.10\.10\.(10|11|12):21005"}
-          or
-          kafka_controller_controllerquorum_activecontrollercount{instance=~"60\.10\.10\.(10|11|12):21005"}
-        )
-      ) >= bool 2
-    ) or vector(0)
-  )
-)
-*
-(
-  2 * (
-    (
-      sum by () (
-        max by (instance) (
-          kafka_controller_kafkacontroller_activecontrollercount{instance=~"60\.10\.10\.(10|11|12):21005"}
-          or
-          kafka_controller_controllerquorum_activecontrollercount{instance=~"60\.10\.10\.(10|11|12):21005"}
-        )
-      ) == bool 1
-    )
-    *
-    (
-      sum by () (count by (instance) (jvm_info{instance=~"60\.10\.10\.(10|11|12):21005"})) >= bool 3
-    )
-  )
-  +
-  1 * (
-    (
-      sum by () (
-        max by (instance) (
-          kafka_controller_kafkacontroller_activecontrollercount{instance=~"60\.10\.10\.(10|11|12):21005"}
-          or
-          kafka_controller_controllerquorum_activecontrollercount{instance=~"60\.10\.10\.(10|11|12):21005"}
-        )
-      ) == bool 1
-    )
-    *
-    (
-      sum by () (count by (instance) (jvm_info{instance=~"60\.10\.10\.(10|11|12):21005"})) <= bool 2
-    )
-  )
-)
-
-
----------------
-# ile procesów controller wystawia metryki
-present_sum = sum by () (count by (instance) (jvm_info{instance=~"60\.10\.10\.(10|11|12):21005"}))
-
-# suma active controller (dopasuj do wersji: legacy vs KRaft)
-active_sum = sum by () (
-  max by (instance) (
-    (kafka_controller_kafkacontroller_activecontrollercount{instance=~"60\.10\.10\.(10|11|12):21005"})
-    or
-    (kafka_controller_controllerquorum_activecontrollercount{instance=~"60\.10\.10\.(10|11|12):21005"})
-  )
-)
-
-3 * (active_sum >= bool 2)
-+
-2 * ((active_sum == bool 1) and (present_sum >= bool 3))
-+
-1 * ((active_sum == bool 1) and (present_sum <= bool 2))
-+
-0 * (active_sum == bool 0)
-
-------------------------------------------
-
-sum by () (
-  (
-    max by (instance) (kafka_server_kafkaserver_brokerstate{instance=~"50\.10\.10\.(10|11|12):21005"} >= bool 3)
-  *
-    (
-      max by (instance) (kafka_server_replicamanager_underreplicatedpartitions{instance=~"50\.10\.10\.(10|11|12):21005"} == bool 0)
-      or on (instance) (max by (instance) (jvm_info{instance=~"50\.10\.10\.(10|11|12):21005"} * 0 + 1))
-    )
-  *
-    (
-      (sum by (instance) (increase(kafka_server_brokertopicmetrics_failedproducerequestspersec{instance=~"50\.10\.10\.(10|11|12):21005"}[5m])) == bool 0)
-      or on (instance) (max by (instance) (jvm_info{instance=~"50\.10\.10\.(10|11|12):21005"} * 0 + 1))
-    )
-  *
-    (
-      (sum by (instance) (increase(kafka_server_brokertopicmetrics_failedfetchrequestspersec{instance=~"50\.10\.10\.(10|11|12):21005"}[5m])) == bool 0)
-      or on (instance) (max by (instance) (jvm_info{instance=~"50\.10\.10\.(10|11|12):21005"} * 0 + 1))
-    )
-  )
-  or on (instance)
-    (max by (instance) (jvm_info{instance=~"50\.10\.10\.(10|11|12):21005"} * 0))
-)
-
-
------------------------
-sum by () (
-  (
-    (count by (instance) (thanos_build_info{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"}) > bool 0)
-  *
-    (
-      max by (instance) (thanos_sidecar_prometheus_up{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"} == bool 1)
-      or on (instance) (max by (instance) (up{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"} * 0 + 1))
-    )
-  *
-    (
-      (sum by (instance) (
-        increase(grpc_server_handled_total{
-          instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090",
-          grpc_code!="OK",
-          grpc_service="thanos.Store"
-        }[15m])
-      ) == bool 0)
-      or on (instance) (max by (instance) (up{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"} * 0 + 1))
-    )
-  *
-    (
-      (sum by (instance) (increase(thanos_shipper_upload_failures_total{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"}[30m])) == bool 0)
-      or on (instance) (max by (instance) (up{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"} * 0 + 1))
-    )
-  *
-    (
-      (sum by (instance) (increase(thanos_objstore_bucket_operation_failures_total{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"}[30m])) == bool 0)
-      or on (instance) (max by (instance) (up{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"} * 0 + 1))
-    )
-  )
-  or on (instance)
-    (max by (instance) (up{instance=~"20\.20\.20\.20:19090|20\.20\.20\.21:19090"} * 0))
-)
-
--------------------
-sum by () (
-(
-(count by (instance) (thanos_build_info{instance=~"15\.10\.10\.10:9090|15\.10\.10\.11:9090"}) > bool 0)
-(
-max by (instance) (
-increase(grpc_client_handled_total{
-instance="15\.10\.10\.10:9090|15\.10\.10\.11:9090",
-grpc_service="thanos.Store",
-grpc_code!="OK"
-}[15m]) == bool 0
-)
-or on (instance)
-(max by (instance) (up{instance="15\.10\.10\.10:9090|15\.10\.10\.11:9090"}) * 0 + 1)
-)
-)
-or on (instance)
-(max by (instance) (up{instance=~"15\.10\.10\.10:9090|15\.10\.10\.11:9090"}) * 0)
-)
-
------------------------------------
-# Ri: 0/1 per instancja — czy proces wystawia metryki (build_info)
-# Hi: 0/1 per instancja — czy instancja jest halted (brak metryki => 0 dla działającej instancji)
-# r  = suma Ri (0..2)       — ile instancji działa
-# hr = suma (Ri * Hi) (0..2)— ile działających instancji jest halted
-
-# Zbiorcze liczniki z fallbackiem do 0 (or vector(0)):
-(
-  3 * ( (sum by () ( count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0 ) >= bool 2 ) or vector(0) )
-)
-+
-(
-  # część na przypadek „działa dokładnie 1 instancja”
-  ( (sum by () ( count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0 )) == bool 1 or vector(0) )
-  *
-  (
-    # zlicz działające instancje, które są halted: hr = sum(Ri * Hi)
-    # Hi z fallbackiem do 0 dla działających instancji, jeśli metryka halted nie istnieje
-    2 * (
-      (
-        sum by () (
-          ( count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0 )
-          *
-          (
-            (
-              max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0)
-            )
-            or on (instance)
-            (
-              ( count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0 ) * 0
-            )
-          )
-        )
-      ) == bool 0
-      or vector(0)
-    )
-    +
-    1 * (
-      (
-        sum by () (
-          ( count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0 )
-          *
-          (
-            (
-              max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0)
-            )
-            or on (instance)
-            (
-              ( count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0 ) * 0
-            )
-          )
-        )
-      ) >= bool 1
-      or vector(0)
-    )
-  )
-)
-
-
-
-------------------------
-3 * (
-  max by () (
-    max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0)
-  ) or vector(0)
-)
-+
-(1 - (
-  max by () (
-    max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0)
-  ) or vector(0)
-))
-*
-(
-  (sum by () (
-    (
-      (count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0)
-    *
-      (1 - (
-        max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0)
-        or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
-      ))
-    *
-      (
-        max by (instance) (
-          increase(thanos_compact_group_compactions_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902",result="error"}[15m]) == bool 0
-        )
-        or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
-      )
-    *
-      (
-        max by (instance) (
-          increase(thanos_objstore_bucket_operation_failures_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}[15m]) == bool 0
-        )
-        or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
-      )
-    )
-    or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
-  ) >= bool 1)
-  +
-  (sum by () (
-    (
-      (count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0)
-    *
-      (1 - (
-        max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0)
-        or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
-      ))
-    *
-      (
-        max by (instance) (
-          increase(thanos_compact_group_compactions_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902",result="error"}[15m]) == bool 0
-        )
-        or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
-      )
-    *
-      (
-        max by (instance) (
-          increase(thanos_objstore_bucket_operation_failures_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}[15m]) == bool 0
-        )
-        or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
-      )
-    )
-    or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
-  ) >= bool 2)
-)
-
-
------------------------------------------
-# halted_i: 0/1 per instancja
-(
-  (max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0))
-  or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
-)  * 2
-+
-# ok_i: 0/1 per instancja (tylko jeśli NIE jest halted)
-(1 -
-  ( (max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0))
-    or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
-  )
-)
-*
-(
-  (
-    (count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0)
-  *
-    (
-      (max by (instance) (increase(thanos_compact_group_compactions_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902", result="error"}[15m]) == bool 0))
-      or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
-    )
-  *
-    (
-      (max by (instance) (increase(thanos_objstore_bucket_operation_failures_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}[15m]) == bool 0))
-      or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
-    )
-  )
-  or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
-)
-
-
-
----------------------------------------------
-# any_halted: 1 gdy którakolwiek instancja ma halted
-(
-  max by () (
-    (max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0))
-    or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
-  )
-) as any_halted
-
-# ok_count: 0..2 – ile instancji jest OK wg warunków
-+
-sum by () (
-  (
-    (count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0)
-  *
-    (
-      (max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} == bool 0))
-      or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
-    )
-  *
-    (
-      (max by (instance) (increase(thanos_compact_group_compactions_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902", result="error"}[15m]) == bool 0))
-      or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
-    )
-  *
-    (
-      (max by (instance) (increase(thanos_objstore_bucket_operation_failures_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}[15m]) == bool 0))
-      or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
-    )
-  )
-  or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
-) as ok_count
-
-# ostateczny status 0/1/2/3:
-# 3*any_halted + (1-any_halted)*( 2*(ok_count==2) + 1*(ok_count==1) )
-+
-3 * any_halted
-+
-(1 - any_halted) * (
-  2 * (ok_count == bool 2)
-  + 1 * (ok_count == bool 1)
-)
-
-
--------------------------
-# Wzorzec instancji (IP:port) – kropki muszą być escapowane
-sum by () (
-  (
-    # OK per instancja = 1, jeśli: jest build_info, nie jest halted, brak błędów kompaktacji i bucket ops w ostatnich 15m
-    (
-      (count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0)
-    *
-      (
-        (max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} == bool 0))
-        or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
-      )
-    *
-      (
-        (max by (instance) (increase(thanos_compact_group_compactions_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902", result="error"}[15m]) == bool 0))
-        or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
-      )
-    *
-      (
-        (max by (instance) (increase(thanos_objstore_bucket_operation_failures_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}[15m]) == bool 0))
-        or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0 + 1)
-      )
-    )
-    or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
-  )
-) as ok_count
-+
-3 * (
-  max by () (
-    (
-      (max by (instance) (thanos_compact_halted{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} > bool 0))
-      or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) * 0)
-    )
-  )
-)
-*
-0  # (to obejście składniowe aby zdefiniować etykietę — patrz niżej)
-
-
-
----------------------------------------
-(
-  sum by () (
-    (
-      (count by (instance) (thanos_build_info{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}) > bool 0)
-    *
-      (
-        (max by (instance) (increase(thanos_compact_group_compactions_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902", result="error"}[15m]) == bool 0))
-        or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} * 0 + 1))
-      )
-    *
-      (
-        (max by (instance) (increase(thanos_objstore_bucket_operation_failures_total{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"}[15m]) == bool 0))
-        or on (instance) (max by (instance) (up{instance=~"12\\.10\\.10\\.10:10902|12\\.10\\.10\\.11:10902"} * 0 + 1))
-      )
-    )
-  ) > bool 0
-)
-
----------------
-oniżej masz “jak to działa” i gotowe wzorce do wycięcia CN z DN w ssl.principal.mapping.rules na brokerze Kafka (KRaft lub ZK).
-
-Co Kafka mapuje
-
-Reguły działają na Subject DN certyfikatu klienta (kanoniczny format RFC2253), np.:
-CN=Janek,OU=Team,O=Example,L=Warszawa,ST=Mazowieckie,C=PL
-Mapowanie nie używa SAN – tylko DN.
-Gdzie ustawić
-
-Globalnie (dla wszystkich listenerów):
-ssl.principal.mapping.rules=...
-Lub per-listener (nadpisuje globalne):
-listener.name.<nazwa>.ssl.principal.mapping.rules=...
-Pamiętaj o tym samym ustawieniu na wszystkich brokerach.
-Najprostsza, najczęściej wystarczająca reguła (CN do małych liter)
-
-Wytnie wszystko, co po CN= aż do pierwszego przecinka:
-ssl.principal.mapping.rules=RULE:^.CN=([^,]+).$/$1/L,DEFAULT
-Efekt: CN=Janek → principal “janek” (L = lowercase)
-Bardziej odporna (CN może mieć przecinki escapowane “, …”)
-
-W properties musisz podwoić backslashe.
-Reguła “escapowane znaki lub cokolwiek poza przecinkiem”:
-ssl.principal.mapping.rules=RULE:^.CN=((?:\\.|[^,]))\s*(?:,.*)?$/$1/L,DEFAULT
-Wyjaśnienie:
-(?:\\.|[^,])* → dopasuj sekwencję “\x” lub każdy znak poza przecinkiem
-/L → wynik na małe litery
-W pliku .properties backslash trzeba podwoić (\\, by trafił do Javy jako \
-Przykłady innych transformacji
-
-CN+OU → “ou_cn”, małymi:
-ssl.principal.mapping.rules=RULE:^.CN=([^,]+),OU=([^,]+).$/$2_$1/L,DEFAULT
-Jeśli chcesz zachować wielkość liter: usuń /L.
-Kilka reguł naraz
-
-Kafka przetwarza je od lewej do prawej; pierwsza dopasowana wygrywa.
-ssl.principal.mapping.rules=RULE:^.CN=([^,]+),OU=([^,]+).$/$2_$1/L,RULE:^.CN=([^,]+).$/$1/L,DEFAULT
-Na co uważać
-
-Escaping w .properties: jeśli używasz backslashy w regexie (np. \.), w pliku musisz je podwoić (\\.
-Wynik mapowania musi 1:1 pasować do super.users/ACL (zwróć uwagę na /L → małe litery).
-Mapowanie działa tylko przy SSL mTLS. Jeśli klient używa SASL_SSL, principal pochodzi z SASL (username), a nie z CN.
-Jak sprawdzić, co broker faktycznie “widzi”
-
-Włącz tymczasowo DEBUG loggerów (bez restartu):
-kafka-configs.sh --bootstrap-server broker:port --alter
---entity-type broker-loggers --entity-name <brokerId>
---add-config 'org.apache.kafka.common.security.authenticator=DEBUG,kafka.authorizer.logger=DEBUG'
-W server.log zobaczysz:
-Authenticated client ... via SSL, principal=User:<wartość> ← to wpisujesz do super.users/ACL
-Authorized/Denied ... for principal=User:<wartość> ← decyzje autoryzera
-Po teście usuń/obniż logowanie:
-kafka-configs.sh --bootstrap-server broker:port --alter
---entity-type broker-loggers --entity-name <brokerId>
---delete-config 'org.apache.kafka.common.security.authenticator,kafka.authorizer.logger'
-Szybki “offline” podgląd DN (jak Kafka go formatuje)
-
-openssl x509 -in client.crt.pem -noout -subject -nameopt RFC2253
-subject=CN=Janek,OU=Team,O=Example,C=PL
-Checklist końcowa
-
-Ustaw regułę (globalnie lub per-listener) spójną na wszystkich brokerach.
-Dopasuj super.users/ACL do wyniku (np. User:janek).
-Upewnij się, że klient naprawdę używa mTLS (security.protocol=SSL oraz keystore/truststore ustawione) – w logu klienta z -Djavax.net.debug=ssl zobaczysz „Sending client certificate”.
-Chcesz, żebym policzył dokładny principal dla konkretnego DN? Wklej swój DN (subject) i powiem, co zwróci każda z powyższych reguł.
-
-
-----------------------------
-ssl.principal.mapping.rules=RULE:^.CN=([^,]+).$/$1/L,DEFAULT
-
---------------------------
-# rozbij na pojedyncze certy
-csplit -s -f part- -b %02d.pem bundle.pem '/-----BEGIN CERTIFICATE-----/' '{*}'
-
-# wypisz Subject/Issuer/ważność/BasicConstraints/EKU
-for f in part-*.pem; do
-  echo "=== $f ==="
-  openssl x509 -in "$f" -noout -subject -issuer -enddate \
-    -ext basicConstraints -ext extendedKeyUsage || true
-done
-
-
-
-
-cat int1.pem int2.pem > chain-clean.pem   # bez starego/wygasłego
-
-# PKCS#12 z łańcuchem
-openssl pkcs12 -export \
-  -inkey client.key -in leaf.pem \
-  -certfile chain-clean.pem -chain \
-  -name client \
-  -out client.p12 -passout pass:changeit
-
-
-openssl pkcs12 -in client.p12 -nokeys -clcerts -info -passin pass:changeit | openssl x509 -noout -subject -issuer
-
-
-
-keytool -importkeystore \
-  -srckeystore client.p12 -srcstoretype PKCS12 -srcstorepass changeit \
-  -destkeystore keystore.jks -deststoretype JKS -deststorepass changeit \
-  -alias client
-
-# sprawdź, że jest PrivateKeyEntry i chain > 1
-keytool -list -v -keystore keystore.jks -storepass changeit -alias client | \
-  egrep 'Entry type:|Certificate chain length:|Owner:|Issuer:'
-
-
----------------------------------------
-#!/usr/bin/env bash
-set -Eeuo pipefail
-
-usage() {
-  cat <<EOF
-Użycie: $0 -k <keystore> [-t JKS|PKCS12] [-p <hasło>] [-w <dni_ostrzeżenia>]
-Przykład: $0 -k keystore.jks -t JKS
-EOF
-}
-
-KS="" ; TYPE="" ; PASS="" ; WARN_DAYS=30
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -k|--keystore) KS="$2"; shift 2;;
-    -t|--type)     TYPE="$2"; shift 2;;
-    -p|--password) PASS="$2"; shift 2;;
-    -w|--warn)     WARN_DAYS="$2"; shift 2;;
-    -h|--help)     usage; exit 0;;
-    *) echo "Nieznany parametr: $1" >&2; usage; exit 1;;
-  esac
-done
-
-[[ -z "$KS" ]] && { echo "Podaj -k <keystore>" >&2; usage; exit 1; }
-command -v keytool >/dev/null || { echo "Brak keytool w PATH" >&2; exit 1; }
-if ! command -v openssl >/dev/null; then
-  echo "Uwaga: brak openssl – część pól będzie ograniczona." >&2
-fi
-
-# Domyśl rozpoznanie typu po rozszerzeniu, jeśli nie podano
-if [[ -z "$TYPE" ]]; then
-  case "${KS##*.}" in
-    jks|JKS) TYPE="JKS" ;;
-    p12|P12|pfx|PFX) TYPE="PKCS12" ;;
-    *) TYPE="" ;; # keytool spróbuje sam
-  esac
-fi
-
-# Hasło – poproś jeśli nie podane
-if [[ -z "$PASS" ]]; then
-  read -r -s -p "Hasło do keystore: " PASS; echo
-fi
-
-export LC_ALL=C
-
-KT_ARGS=(-keystore "$KS" -storepass "$PASS")
-[[ -n "$TYPE" ]] && KT_ARGS+=(-storetype "$TYPE")
-
-# Sprawdź dostęp
-if ! keytool -list "${KT_ARGS[@]}" >/dev/null 2>&1; then
-  echo "Błąd: nieprawidłowe hasło/typ/plik (albo keystore uszkodzony)" >&2
-  exit 1
-fi
-
-# Pobierz aliasy
-mapfile -t ALIASES < <(keytool -list -v "${KT_ARGS[@]}" 2>/dev/null | awk -F': ' '/^Alias name:/{print $2}')
-if [[ ${#ALIASES[@]} -eq 0 ]]; then
-  echo "Brak aliasów w keystore lub brak uprawnień." >&2
-  exit 0
-fi
-
-NOW_EPOCH=$(date +%s)
-
-for alias in "${ALIASES[@]}"; do
-  META=$(keytool -list -v -alias "$alias" "${KT_ARGS[@]}" 2>/dev/null || true)
-  ENTRY_TYPE=$(awk -F': ' '/^Entry type:/{print $2}' <<<"$META")
-  CHAIN_LEN=$(awk -F': ' '/^Certificate chain length:/{print $2}' <<<"$META")
-  [[ -z "$CHAIN_LEN" ]] && CHAIN_LEN=1
-
-  echo "----------------------------------------"
-  echo "Alias:        $alias"
-  echo "Typ wpisu:    ${ENTRY_TYPE:-nieznany}"
-  echo "Dł. łańcucha: $CHAIN_LEN"
-
-  if command -v openssl >/dev/null; then
-    # wyeksportuj cert (leaf) i wypisz parametry
-    if PEM=$(keytool -exportcert -alias "$alias" "${KT_ARGS[@]}" -rfc 2>/dev/null); then
-      SUBJECT=$(openssl x509 -noout -subject    <<<"$PEM" | sed 's/^subject= //')
-      ISSUER=$(openssl  x509 -noout -issuer     <<<"$PEM" | sed 's/^issuer= //')
-      NB=$(openssl      x509 -noout -startdate  <<<"$PEM" | cut -d= -f2)
-      NA=$(openssl      x509 -noout -enddate    <<<"$PEM" | cut -d= -f2)
-      SERIAL=$(openssl  x509 -noout -serial     <<<"$PEM" | cut -d= -f2)
-      FP=$(openssl      x509 -noout -fingerprint -sha256 <<<"$PEM" | cut -d= -f2)
-
-      echo "Subject:      $SUBJECT"
-      echo "Issuer:       $ISSUER"
-      echo "Serial:       $SERIAL"
-      echo "Not Before:   $NB"
-      echo "Not After:    $NA"
-
-      # policz dni do wygaśnięcia (GNU date)
-      if END_EPOCH=$(date -d "$NA" +%s 2>/dev/null); then
-        DAYS_LEFT=$(( (END_EPOCH - NOW_EPOCH) / 86400 ))
-        echo "Pozostało:    ${DAYS_LEFT} dni"
-        if (( DAYS_LEFT <= WARN_DAYS )); then
-          echo "UWAGA: certyfikat wygaśnie w ${DAYS_LEFT} dni!"
-        fi
-      fi
-      echo "SHA256 FP:    $FP"
-    else
-      echo "Nie udało się wyeksportować certyfikatu (alias: $alias)."
-    fi
-  else
-    # Fallback bez openssl – ograniczone info z keytool -list -v
-    echo "$(sed -n -e 's/^Owner: \+//p' -e 's/^Subject: \+//p' -e 's/^Issuer: \+//p' -e 's/^Serial number: \+//p' -e 's/^Valid from: \+//p' <<<"$META")"
-  fi
-done
-------------------
-#!/bin/bash
-
-VAULT_ADDR="http://vault.example.com:8200"
-VAULT_USER="twoj_uzytkownik"
-VAULT_PASS="twoje_haslo"
-SECRET_PATH="secret/data/mysecret"  # zmień jeśli KV v1 na: secret/mysecret
-
-# 1. Logowanie
-VAULT_TOKEN=$(curl -s \
-  --request POST \
-  --data "{\"password\": \"${VAULT_PASS}\"}" \
-  "${VAULT_ADDR}/v1/auth/userpass/login/${VAULT_USER}" \
-  | jq -r '.auth.client_token')
-
-if [ -z "$VAULT_TOKEN" ] || [ "$VAULT_TOKEN" == "null" ]; then
-  echo "❌ Błąd: nie udało się pobrać tokena" >&2
-  exit 1
-fi
-
-echo "✅ Token pobrany: $VAULT_TOKEN"
-
-# 2. Pobranie sekretu
-RESPONSE=$(curl -s \
-  -H "X-Vault-Token: ${VAULT_TOKEN}" \
-  "${VAULT_ADDR}/v1/${SECRET_PATH}")
-
-echo "🔍 Pełna odpowiedź z Vault:"
-echo "$RESPONSE" | jq .
-
-# 3. Jeśli KV v2 - same dane:
-if [[ "$SECRET_PATH" == *"data/"* ]]; then
-  echo "📦 Dane sekreta:"
-  echo "$RESPONSE" | jq -r '.data.data'
-fi
-
-
-------
-max(
-  (
-    (kafka_server_BrokerState{instance="broker1:7071"} >= 0)
-    and on (instance) (rate(kafka_server_BrokerTopicMetrics_BytesInTotal{instance="broker1:7071"}[5m]) > 0)
-    > bool 0
-  )
-  or on() (absent(kafka_server_BrokerState{instance="broker1:7071"}) * 0)
-)
-
---
-
-max(
-  (
-    (kafka_controller_ControllerStats_activeControllerCount{instance="controller1:7071"} >= 0)
-    and on (instance) (rate(kafka_server_BrokerTopicMetrics_BytesInTotal{instance="controller1:7071"}[5m]) > 0)
-    > bool 0
-  )
-  or on() (absent(kafka_controller_ControllerStats_activeControllerCount{instance="controller1:7071"}) * 0)
-)
-
---------------------------------
-
-
-(prometheus_build_info{job="prometheus"} == 1)
-and (process_start_time_seconds{job="prometheus"} > 0)
-and (increase(prometheus_tsdb_head_samples_appended_total{job="prometheus"}[5m]) > 0)
-and (increase(prometheus_target_scrapes_total{job="prometheus"}[5m]) > 0)
---------------------
-#!/bin/bash
-# Skrypt: pokazuje szczegóły wszystkich certyfikatów w pliku PEM
-# Użycie: ./show_certs.sh plik.pem
-
-# Sprawdzenie argumentów
-if [ $# -ne 1 ]; then
-    echo "Użycie: $0 plik_z_cert.pem"
-    exit 1
-fi
-
-CERT_FILE="$1"
-
-# Sprawdzenie czy plik istnieje
-if [ ! -f "$CERT_FILE" ]; then
-    echo "Błąd: plik '$CERT_FILE' nie istnieje"
-    exit 1
-fi
-
-# Przetwarzanie certyfikatów po kolei
-csplit -f cert_part_ -b "%02d.pem" "$CERT_FILE" '/-----BEGIN CERTIFICATE-----/' '{*}' > /dev/null 2>&1
-
-for cert in cert_part_*.pem; do
-    if grep -q "BEGIN CERTIFICATE" "$cert"; then
-        echo "========== Certyfikat: $cert =========="
-        openssl x509 -noout -text -in "$cert"
-        echo ""  # pusty wiersz między certyfikatami
-    fi
-    rm -f "$cert"  # usuwanie pliku tymczasowego
-done
--------------
-#!/bin/bash
-
-# Parametry (możesz przekazać jako zmienne środowiskowe lub argumenty)
-CERT="server.crt"
-KEY="server.key"
-CA="ca.crt"
-P12="server.p12"
-P12_ALIAS="myserver"
-P12_PASS="p12haslo"
-KEYSTORE="keystore.jks"
-KEYSTORE_PASS="keystorehaslo"
-TRUSTSTORE="truststore.jks"
-TRUSTSTORE_PASS="truststorehaslo"
-TRUSTSTORE_ALIAS="myca"
-
-# 1. Tworzenie PKCS#12
-openssl pkcs12 -export \
-  -in "$CERT" \
-  -inkey "$KEY" \
-  -certfile "$CA" \
-  -name "$P12_ALIAS" \
-  -out "$P12" \
-  -password pass:"$P12_PASS"
-
-echo "PKCS#12 zapisany jako $P12"
-
-# 2. Tworzenie keystore JKS z PKCS#12
-keytool -importkeystore \
-  -deststorepass "$KEYSTORE_PASS" \
-  -destkeypass "$KEYSTORE_PASS" \
-  -destkeystore "$KEYSTORE" \
-  -srckeystore "$P12" \
-  -srcstoretype PKCS12 \
-  -srcstorepass "$P12_PASS" \
-  -alias "$P12_ALIAS" \
-  -noprompt
-
-echo "Keystore JKS zapisany jako $KEYSTORE"
-
-# 3. Tworzenie truststore JKS i import CA
-keytool -importcert \
-  -trustcacerts \
-  -alias "$TRUSTSTORE_ALIAS" \
-  -file "$CA" \
-  -keystore "$TRUSTSTORE" \
-  -storepass "$TRUSTSTORE_PASS" \
-  -noprompt
-
-echo "Truststore JKS zapisany jako $TRUSTSTORE"
+{{- range $k, $v := .Values.apmConfig }}
+  {{ $k }}: |
+{{ $v | indent 4 }}
+{{- end }}
+{{- end }}
+```
+
+offline/apm-server/templates/deployment.yaml
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "apm-server.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "apm-server.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "apm-server.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "apm-server.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+    spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "apm-server.fullname" . }}
+      {{- else if .Values.serviceAccount.name }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- end }}
+      securityContext:
+{{ toYaml .Values.podSecurityContext | indent 8 }}
+      volumes:
+      {{- if .Values.apmConfig }}
+      - name: apm-config
+        configMap:
+          name: {{ include "apm-server.fullname" . }}-config
+      {{- end }}
+      {{- range .Values.secretMounts }}
+      - name: {{ .name }}
+        secret:
+          secretName: {{ .secretName }}
+          {{- if .defaultMode }}
+          defaultMode: {{ .defaultMode }}
+          {{- end }}
+      {{- end }}
+      {{- if .Values.extraVolumes }}
+{{ toYaml .Values.extraVolumes | indent 6 }}
+      {{- end }}
+      containers:
+      - name: apm-server
+        image: "{{ .Values.image }}:{{ .Values.imageTag }}"
+        imagePullPolicy: {{ .Values.imagePullPolicy }}
+        securityContext:
+{{ toYaml .Values.securityContext | indent 10 }}
+        ports:
+        - name: http
+          containerPort: 8200
+          protocol: TCP
+        env:
+        {{- range .Values.env }}
+        - {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- if .Values.envFrom }}
+        envFrom:
+{{ toYaml .Values.envFrom | indent 10 }}
+        {{- end }}
+        volumeMounts:
+        {{- if .Values.apmConfig }}
+        - name: apm-config
+          mountPath: /usr/share/apm-server/apm-server.yml
+          subPath: apm-server.yml
+          readOnly: true
+        {{- end }}
+        {{- range .Values.secretMounts }}
+        - name: {{ .name }}
+          mountPath: {{ .path }}
+          readOnly: true
+        {{- end }}
+        {{- if .Values.extraVolumeMounts }}
+{{ toYaml .Values.extraVolumeMounts | indent 10 }}
+        {{- end }}
+        livenessProbe:
+{{ toYaml .Values.livenessProbe | indent 10 }}
+        readinessProbe:
+{{ toYaml .Values.readinessProbe | indent 10 }}
+        resources:
+{{ toYaml .Values.resources | indent 10 }}
+      {{- if .Values.extraContainers }}
+{{ toYaml .Values.extraContainers | indent 6 }}
+      {{- end }}
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml .Values.imagePullSecrets | indent 8 }}
+      {{- end }}
+      nodeSelector:
+{{ toYaml .Values.nodeSelector | indent 8 }}
+      tolerations:
+{{ toYaml .Values.tolerations | indent 8 }}
+      affinity:
+{{ toYaml .Values.affinity | indent 8 }}
+```
+
+offline/apm-server/templates/service.yaml
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "apm-server.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "apm-server.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- with .Values.service.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "apm-server.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+  - name: http
+    port: {{ .Values.service.port }}
+    targetPort: 8200
+    protocol: TCP
+```
+
+offline/apm-server/templates/serviceaccount.yaml
+```yaml
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "apm-server.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "apm-server.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+```
+
+offline/apm-server/templates/NOTES.txt
+```txt
+APM Server {{ .Chart.AppVersion }} zainstalowany.
+Service: {{ include "apm-server.fullname" . }}:{{ .Values.service.port }}
+
+Sprawdź logi:
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "apm-server.fullname" . }}
+```
+
+3) Przygotuj obraz apm-server:8.14.3 offline
+Na maszynie z internetem:
+```bash
+docker pull docker.elastic.co/apm/apm-server:8.14.3
+docker save -o apm-server-8.14.3.tar docker.elastic.co/apm/apm-server:8.14.3
+```
+W środowisku bez internetu (ale z wewnętrznym registry):
+```bash
+docker load -i apm-server-8.14.3.tar
+docker tag docker.elastic.co/apm/apm-server:8.14.3 registry.local/elastic/apm-server:8.14.3
+docker push registry.local/elastic/apm-server:8.14.3
+```
+W values.yaml ustaw:
+- image: registry.local/elastic/apm-server
+- imageTag: 8.14.3
+- ewentualnie imagePullSecrets: [{name: regcred}]
+
+4) Utwórz Secrety (jeśli jeszcze nie istnieją)
+
+A) TLS do Kafki (PEM) – w Twoim namespace:
+```bash
+kubectl -n observability create secret generic kafka-secret-elk \
+  --from-file=ca-bungle.crt=./ca-bungle.crt \
+  --from-file=tls-bungle.crt=./tls-bungle.crt \
+  --from-file=tls.key=./tls.key
+```
+W values.yaml odkomentuj secretMounts:
+```yaml
+secretMounts:
+  - name: kafka-tls
+    secretName: kafka-secret-elk
+    path: /usr/share/apm-server/config/kafka-tls
+    defaultMode: 0400
+```
+
+B) (Zamiennie) PKCS#12/JKS – stwórz Secret z plikiem i hasłem:
+```bash
+kubectl -n observability create secret generic apm-kafka-keystore \
+  --from-file=client.p12=./client.p12
+kubectl -n observability create secret generic apm-env-secrets \
+  --from-literal=KS_PASS='twojeHaslo'
+```
+W values.yaml podmień sekcję output.kafka na PKCS#12/JKS i dodaj envFrom:
+```yaml
+envFrom:
+  - secretRef: { name: apm-env-secrets }
+secretMounts:
+  - name: kafka-tls
+    secretName: apm-kafka-keystore
+    path: /usr/share/apm-server/config/kafka-tls
+    defaultMode: 0400
+```
+
+C) (Opcjonalnie) token do intake:
+```bash
+kubectl -n observability create secret generic apm-env-secrets \
+  --from-literal=APM_SECRET_TOKEN='sekret' \
+  --from-literal=KAFKA_USERNAME='user' \
+  --from-literal=KAFKA_PASSWORD='pass'
+```
+I w values.yaml:
+```yaml
+envFrom:
+  - secretRef: { name: apm-env-secrets }
+```
+
+D) (Opcjonalnie) pull secret do Waszego registry:
+```bash
+kubectl -n observability create secret docker-registry regcred \
+  --docker-server=registry.local \
+  --docker-username=USER --docker-password=PASS --docker-email=devnull@example.com
+```
+I w values.yaml:
+```yaml
+imagePullSecrets: [{ name: regcred }]
+```
+
+5) Instalacja Helm (air‑gapped)
+```bash
+helm upgrade --install apm-server ./offline/apm-server \
+  -n observability --create-namespace \
+  -f ./offline/apm-server/values.yaml
+```
+
+6) Weryfikacja i debug
+- Pod’y:
+```bash
+kubectl -n observability get pods -l app.kubernetes.io/name=apm-server
+```
+- Logi:
+```bash
+kubectl -n observability logs deploy/apm-server
+```
+- Szybki test output (TLS WARN dla Kafki jest normalny – ważny jest exit code=0):
+```bash
+kubectl -n observability exec deploy/apm-server -- \
+  apm-server test output -c /usr/share/apm-server/apm-server.yml
+```
+
+7) Zmiana na SASL lub PKCS#12/JKS
+- SASL: w values.yaml odkomentuj username/password/sasl.mechanism, dodaj envFrom z Secretu zawierającego KAFKA_USERNAME/KAFKA_PASSWORD, usuń ssl.certificate/ssl.key.
+- PKCS#12/JKS: jak w pkt 4B – podmień ścieżki i hasła; Secret z keystore zamontuj w secretMounts.
+
+8) OpenShift (uwagi)
+- Chart ma runAsNonRoot + readOnlyRootFilesystem – zgodny z restricted SCC.
+- Pliki Secretów są montowane tylko do odczytu (defaultMode: 0400).
+- Jeśli macie limitacje na obrazy, upewnij się, że registry.local jest dostępny z OCP i że masz poprawny imagePullSecret.
+
+Masz inne ścieżki/nazwy Secretów/adresy brokerów? Wklej je, a przygotuję gotowy values.yaml 1:1 (i ewentualnie manifesty Secretów).
