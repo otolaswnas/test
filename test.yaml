@@ -1,0 +1,266 @@
+Poniżej masz kompletny, “od A do Z” przepis co dodać do bieżącego Charts repo (template chart APM) i do values repo (per klaster), aby:
+
+- cyklicznie wykonywać apm-server test output (sprawdza Kafka output),
+- wystawiać własną metrykę na porcie 8888 pod /metrics (Prometheus text),
+- zbierać ją przez Prometheusa w OCP (User Workload Monitoring) przez Service + ServiceMonitor,
+- bez modyfikowania obrazu APM i bez zależności od Kafki/ES (metryka powstaje lokalnie).
+
+Architektura
+- initContainer (apm image): kopiuje binarkę apm-server do wspólnego wolumenu /tools,
+- sidecar “apm-output-check”: uruchamia co X sek. apm-server test output z tą samą konfiguracją co APM i generuje plik /metrics/metrics, równolegle serwuje /metrics http na 8888 (busybox httpd),
+- (opcjonalnie) sidecar używa tych samych env/sekretów i mountów co główny kontener (jeśli Twoje output.kafka korzysta z env i/lub plików przez VSS CSI, skrypt będzie miał tę samą konfigurację i ścieżki),
+- Service + ServiceMonitor: zbiera apm_kafka_output_ok, apm_kafka_output_reachable_brokers, apm_kafka_output_last_run_ts.
+
+Krok 1. Dodaj “włącznik” i parametry w values.yaml (w repo z values dla klastra)
+
+W pliku values dla danego OCP klastra dopisz sekcję (przykład):
+
+```yaml
+metricsProbe:
+  enabled: true
+  port: 8888
+  intervalSeconds: 300           # co 5 min (możesz dać 86400 = raz dziennie)
+  ocpCluster: "ocp-prod-1"       # nazwa klastra (etykieta w metrykach)
+  # użyj obrazu z allowliste: busybox (httpd) lub python (http.server)
+  sidecarImage: "busybox:1.36"   # lub "registry.local/base/busybox:1.36"
+  initImage: "registry.local/elastic/apm-server:8.14.3"  # ten sam obraz co główny APM (żeby skopiować binarkę)
+  # dopnij te same env i mounty co główny kontener, jeśli APM bierze output.kafka z env/plików:
+  inheritEnvFromMain: true       # jeżeli główny kontener ma envFrom (sekret z SASL/hasłami)
+  inheritSecretMounts: true      # jeżeli montujesz pliki TLS/keystore (PEM/PKCS12/JKS)
+```
+
+Uwaga:
+- ocpCluster pokaże się jako label w metrykach, podobnie namespace (Downward API).
+- Jeśli w klastrze nie wolno pobierać z docker.io, wskaż sidecarImage/initImage z Waszego registry.
+
+Krok 2. Dodaj ConfigMap ze skryptem (templates/configmap-metrics.yaml)
+
+Do charts repo (templates/) dodaj plik configmap z “apm-kafka-output.sh”:
+
+offline/apm-server/templates/configmap-metrics.yaml
+```yaml
+{{- if .Values.metricsProbe.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "apm-server.fullname" . }}-metrics-script
+  labels:
+    app.kubernetes.io/name: {{ include "apm-server.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  apm-kafka-output.sh: |
+    #!/bin/sh
+    set -eu
+    APM_BIN="${APM_BIN:-/tools/apm-server}"              # binarka skopiowana przez initContainer
+    APM_CFG="${APM_CFG:-/usr/share/apm-server/apm-server.yml}"
+    METRICS_DIR="${METRICS_DIR:-/metrics}"
+    PORT="${PORT:-{{ .Values.metricsProbe.port }}}"
+    INTERVAL_SECONDS="${INTERVAL_SECONDS:-{{ .Values.metricsProbe.intervalSeconds }}}"
+    CLUSTER="${OCP_CLUSTER:-{{ .Values.metricsProbe.ocpCluster | default "unknown" }}}"
+    NAMESPACE="${POD_NAMESPACE:-unknown}"
+
+    mkdir -p "$METRICS_DIR"
+    # start httpd (busybox) i trzymaj w tle
+    {{- if (hasPrefix "busybox" .Values.metricsProbe.sidecarImage) }}
+    httpd -f -p "$PORT" -h "$METRICS_DIR" &
+    {{- else }}
+    # jeśli użyjesz pythonowego sidecara, httpd nie wystartuje tu (serwuje sidecar)
+    :
+    {{- end }}
+    HTTPD_PID=$! 2>/dev/null || true
+    trap 'kill $HTTPD_PID 2>/dev/null || true; exit 0' INT TERM
+
+    while true; do
+      OUT="$("$APM_BIN" test output -c "$APM_CFG" 2>&1 || true)"
+      RC=$?
+      BROKERS=$(printf '%s\n' "$OUT" | awk '/brokers/{for(i=1;i<=NF;i++) if($i ~ /^[0-9]+$/){print $i; exit}}')
+      [ -z "${BROKERS:-}" ] && BROKERS=0
+      OK=$([ $RC -eq 0 ] && echo 1 || echo 0)
+      TS=$(date +%s)
+
+      cat > "$METRICS_DIR/metrics" <<EOF
+# HELP apm_kafka_output_ok 1 if apm-server test output succeeded (exit code 0)
+# TYPE apm_kafka_output_ok gauge
+apm_kafka_output_ok{cluster="{{ .Values.metricsProbe.ocpCluster | default "unknown" }}",namespace="$NAMESPACE"} $OK
+# HELP apm_kafka_output_reachable_brokers Brokers reported as reachable by test output
+# TYPE apm_kafka_output_reachable_brokers gauge
+apm_kafka_output_reachable_brokers{cluster="{{ .Values.metricsProbe.ocpCluster | default "unknown" }}",namespace="$NAMESPACE"} $BROKERS
+# HELP apm_kafka_output_last_run_ts Unix time of last test execution
+# TYPE apm_kafka_output_last_run_ts gauge
+apm_kafka_output_last_run_ts{cluster="{{ .Values.metricsProbe.ocpCluster | default "unknown" }}",namespace="$NAMESPACE"} $TS
+EOF
+      sleep "$INTERVAL_SECONDS"
+    done
+{{- end }}
+```
+
+Krok 3. Rozszerz Deployment (templates/deployment.yaml) – initContainer, sidecar, wolumeny
+
+W pliku templates/deployment.yaml dodaj (we właściwych miejscach):
+
+a) Volumes (shared):
+```yaml
+      volumes:
+      {{- if .Values.apmConfig }}
+      - name: apm-config
+        configMap:
+          name: {{ include "apm-server.fullname" . }}-config
+      {{- end }}
+      {{- range .Values.secretMounts }}
+      - name: {{ .name }}
+        secret:
+          secretName: {{ .secretName }}
+          {{- if .defaultMode }}defaultMode: {{ .defaultMode }}{{- end }}
+      {{- end }}
+      {{- if .Values.metricsProbe.enabled }}
+      - name: tools
+        emptyDir: {}
+      - name: metrics-dir
+        emptyDir: {}
+      - name: metrics-script
+        configMap:
+          name: {{ include "apm-server.fullname" . }}-metrics-script
+          defaultMode: 0755
+      {{- end }}
+      {{- if .Values.extraVolumes }}
+{{ toYaml .Values.extraVolumes | indent 6 }}
+      {{- end }}
+```
+
+b) initContainer (kopiuje apm-server do /tools):
+```yaml
+      {{- if .Values.metricsProbe.enabled }}
+      initContainers:
+      - name: get-apm-binary
+        image: {{ .Values.metricsProbe.initImage | quote }}
+        command: ["sh","-c","cp /usr/share/apm-server/apm-server /tools/apm-server && chmod +x /tools/apm-server"]
+        volumeMounts:
+        - name: tools
+          mountPath: /tools
+      {{- end }}
+```
+
+c) Sidecar “apm-output-check” i ewentualny sidecar http (jeśli nie używasz busyboxa w probe)
+
+Wstaw w sekcji containers dodatkowo (po głównym kontenerze apm-server):
+
+```yaml
+      {{- if .Values.metricsProbe.enabled }}
+      - name: apm-output-check
+        image: {{ .Values.metricsProbe.sidecarImage | quote }}
+        command: ["/bin/sh","-c","/scripts/apm-kafka-output.sh"]
+        env:
+        - name: OCP_CLUSTER
+          value: {{ .Values.metricsProbe.ocpCluster | quote }}
+        - name: POD_NAMESPACE
+          valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+        - name: PORT
+          value: {{ printf "%d" .Values.metricsProbe.port | quote }}
+        - name: INTERVAL_SECONDS
+          value: {{ printf "%d" .Values.metricsProbe.intervalSeconds | quote }}
+        volumeMounts:
+        - { name: tools,         mountPath: /tools,          readOnly: true }
+        - { name: metrics-dir,   mountPath: /metrics }
+        - { name: metrics-script,mountPath: /scripts/apm-kafka-output.sh, subPath: apm-kafka-output.sh }
+        # Zamontuj tę samą konfigurację i sekrety co główny kontener, by test miał identyczne środowisko:
+        - { name: apm-config,    mountPath: /usr/share/apm-server/apm-server.yml, subPath: apm-server.yml, readOnly: true }
+        {{- if .Values.metricsProbe.inheritSecretMounts }}
+        {{- range .Values.secretMounts }}
+        - { name: {{ .name }},  mountPath: {{ .path }}, readOnly: true }
+        {{- end }}
+        {{- end }}
+        {{- if .Values.metricsProbe.inheritEnvFromMain }}
+        envFrom:
+        {{- if .Values.envFrom }}
+{{ toYaml .Values.envFrom | indent 8 }}
+        {{- end }}
+        {{- if .Values.env }}
+        # (opcjonalnie) pojedyncze env
+        {{- end }}
+        {{- end }}
+        ports:
+        - name: metrics
+          containerPort: {{ .Values.metricsProbe.port }}
+      {{- end }}
+```
+
+Jeśli nie chcesz, by “apm-output-check” sam wystawiał httpd, możesz rozdzielić na dwa sidecary:
+- apm-output-check: generuje /metrics/metrics,
+- metrics-httpd: serwuje http (użyj python:3.11-alpine → python -m http.server 8888 -d /metrics).
+
+Krok 4. Service + ServiceMonitor (zbiórka przez Prometheusa)
+
+Dodaj 2 pliki do templates:
+
+templates/service-metrics.yaml
+```yaml
+{{- if .Values.metricsProbe.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "apm-server.fullname" . }}-metrics
+  labels:
+    app.kubernetes.io/name: {{ include "apm-server.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "apm-server.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+  - name: metrics
+    port: {{ .Values.metricsProbe.port }}
+    targetPort: metrics
+    protocol: TCP
+{{- end }}
+```
+
+templates/servicemonitor.yaml (jeśli UWM jest włączony; namespace ten sam co APM):
+```yaml
+{{- if .Values.metricsProbe.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "apm-server.fullname" . }}-metrics
+  labels:
+    app.kubernetes.io/name: {{ include "apm-server.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "apm-server.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  endpoints:
+  - port: metrics
+    interval: 1m
+    path: /metrics
+{{- end }}
+```
+
+Uwaga OCP:
+- Upewnij się, że User Workload Monitoring jest włączony w klastrze. ServiceMonitor w Twoim namespace powinien być zebrany przez UWM bez dodatkowych adnotacji. Jeśli macie własne selektory, dopasuj labels/selector do waszych reguł.
+
+Krok 5. Co się pojawi w Prometheusie (metryki)
+- apm_kafka_output_ok{cluster="ocp-prod-1",namespace="<ns>"} 1|0
+- apm_kafka_output_reachable_brokers{…} N
+- apm_kafka_output_last_run_ts{…} <epoch>
+
+Krok 6. Alerty (przykładowe PromQL)
+- Output niedostępny:
+  apm_kafka_output_ok == 0
+- Zero brokerów:
+  apm_kafka_output_reachable_brokers == 0
+- Wykonanie nie odświeża się (proces stoi):
+  time() - apm_kafka_output_last_run_ts > 2*60*60
+
+Dlaczego to działa
+- test output używa tej samej konfiguracji (apm-server.yml + te same mounty/env co APM),
+- metryka powstaje w Podzie i jest wystawiona lokalnie (nie wymaga Kafki/ES),
+- Prometheus z OCP zbiera przez ServiceMonitor.
+
+Najczęstsze pułapki
+- initImage musi odpowiadać wersji APM (żeby ścieżka /usr/share/apm-server/apm-server była poprawna).
+- jeżeli output.kafka korzysta z env (SASL), pamiętaj o inheritEnvFromMain: true i envFrom w values, by sidecar odziedziczył te same sekrety.
+- VSS (Vault): jeśli APM ma pliki z Vault przez CSI, sidecar też je montuje (inheritSecretMounts: true).
+- Busybox dostępność: jeśli docker.io zablokowany, użyj obrazu z allowlisty (mirror busybox/UBI+python).
+
+Jeśli chcesz, żebym scalił powyższe fragmenty do Twojej wersji chartu (np. masz już extraVolumes w chart’cie), wklej templates/deployment.yaml (fragment spec) – zrobię diff 1:1.
