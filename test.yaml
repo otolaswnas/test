@@ -1,3 +1,9 @@
+curl -s -u USER:PASS https://ES:9200/_security/role/<role_name> | jq -r '
+  to_entries[] | .key as $r |
+  .value.indices[] | {role:$r, names:.names, privileges:.privileges}'
+
+  ---------------------
+
 Poniżej masz kompletny, “od A do Z” przepis co dodać do bieżącego Charts repo (template chart APM) i do values repo (per klaster), aby:
 
 - cyklicznie wykonywać apm-server test output (sprawdza Kafka output),
