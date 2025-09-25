@@ -1,3 +1,136 @@
+Dzięki za liczby – to jest sedno problemu.
+
+Co widać z Twoich danych
+- lsof -p … | wc -l = 13 229 otwartych deskryptorów
+- LimitNOFILE = 16 384 (soft/hard)
+
+Jesteś bardzo blisko limitu FD (ponad 80%). Gdy liczba socketów/pliki chwilowo skoczy (np. przypływ danych, retry, okresowe wywołania management API), Logstash zabraknie deskryptorów i nowe połączenia HTTP/TLS do Elasticsearch zaczną padać na timeouty/HostUnreachable. Dodatkowo wcześniej pokazałeś tysiące ESTABLISHED – to potwierdza, że większość FD to gniazda sieciowe.
+
+Co zrobić (kroki wprost pod RHEL 8 + Logstash 8.14.3)
+
+1) Podnieś twardo limit otwartych plików dla usługi logstash
+- systemd override (rekomendowane):
+```
+sudo systemctl edit logstash
+```
+W edytorze wklej:
+```
+[Service]
+LimitNOFILE=262144
+```
+Zapisz, potem:
+```
+sudo systemctl daemon-reload
+sudo systemctl restart logstash
+```
+Sprawdź:
+```
+cat /proc/$(pgrep -f org.logstash.Logstash)/limits | grep -i "Max open files"
+```
+Powinno pokazać ≥ 262144.
+
+- (opcjonalnie) PAM/limits – przydatne, jeśli kiedyś odpalisz LS “ręcznie”:
+```
+echo -e "logstash soft nofile 262144\nlogstash hard nofile 262144" | sudo tee /etc/security/limits.d/99-logstash.conf
+```
+
+2) Wymuś preferencję IPv4 w JVM (eliminuje losowe próby AAAA po czasie)
+- dodaj do tego samego drop‑in (albo do /etc/sysconfig/logstash):
+```
+[Service]
+Environment=LS_JAVA_OPTS=-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false
+```
+I restart (jak wyżej).
+
+3) Włącz TCP keepalive i ustaw porty efemeryczne/FIN timeout (na hoście)
+- /etc/sysctl.d/99-logstash-keepalive.conf:
+```
+net.ipv4.tcp_keepalive_time = 60
+net.ipv4.tcp_keepalive_intvl = 15
+net.ipv4.tcp_keepalive_probes = 4
+```
+- /etc/sysctl.d/99-logstash-net.conf:
+```
+net.ipv4.ip_local_port_range = 10240 60999
+net.ipv4.tcp_fin_timeout = 15
+```
+Zastosuj:
+```
+sudo sysctl --system
+```
+
+4) Ogranicz i “uzdrawiaj” pulę połączeń HTTP w output Elasticsearch
+W pliku pipeline (np. /etc/logstash/conf.d/50-output-elasticsearch.conf) dopisz/zmień:
+
+```
+output {
+  elasticsearch {
+    hosts => ["https://A.B.C.D:9200"]      # na test wpisz jeden pewny endpoint (IPv4 lub FQDN z rekordem A)
+    user  => "logstash_writer"
+    password => "${ES_PASSWORD}"
+
+    ssl => true
+    cacert => "/etc/logstash/certs/http_ca.crt"
+
+    # Wyłącz ILM/setup na czas stabilizacji (często to one timeoutują)
+    manage_template => false
+    ilm_enabled     => false
+    index           => "logstash-%{+YYYY.MM.dd}"
+
+    # Pool/keepalive/timeouty – ogranicz liczbę socketów i wycinaj martwe idle
+    pool_max => 200
+    pool_max_per_route => 100
+    validate_after_inactivity => 60
+    resurrect_delay => 5
+
+    connect_timeout => 30
+    request_timeout => 60
+    socket_timeout  => 60
+  }
+}
+```
+
+Wyjaśnienie:
+- pool_max / pool_max_per_route: górny limit socketów w puli (globalnie i na dany host). Zbijesz liczbę ESTABLISHED do rozsądnego poziomu.
+- validate_after_inactivity: każde połączenie “przetestuj” po 60 s bezczynności – martwe idle znikną, nie będą powodować SocketTimeout przy kolejnym użyciu.
+- resurrect_delay: szybciej “wstaje” host oznaczony jako martwy (przy chwilowych problemach).
+- timeouts: sensowne wartości, żeby nie wisieć zbyt długo.
+
+5) Restart Logstasha i obserwacja
+```
+sudo systemctl restart logstash
+journalctl -u logstash -f
+```
+Po kilkunastu minutach:
+- ss -s – ESTAB powinno spaść o rząd wielkości; TIME_WAIT nie musi być duże (przy keepalive).
+- lsof -p $(pgrep -f org.logstash.Logstash) | wc -l – powinno być dużo dalej od limitu (przy LimitNOFILE 262k margines jest ogromny).
+
+6) Jeśli używasz listy wielu hostów w “hosts => […]”
+- na czas stabilizacji trzymaj tylko jeden pewny endpoint. Każdy host w liście to oddzielny “route” i osobna pula socketów → mnożnik FD. Gdy ES stoi za VIP/DNSLB – preferuj jeden FQDN.
+
+7) Gdy problem powraca (rzadko)
+- sprawdź, czy CLOSE_WAIT nie rośnie:
+  ```
+  ss -tan state close-wait | wc -l
+  ```
+  Jeśli tak – to peer (ES/LB) zamyka połączenia a klient nie sprząta – validate_after_inactivity i keepalive zwykle to leczą.
+- Sprawdź, czy ES nie jest przeciążony na HTTP:
+  ```
+  GET /_nodes/stats/thread_pool?human&filter_path=**.http.*
+  ```
+  Jeśli http.current_open/queue/rejected wysokie – to też będzie dawało socket timeouty: rozważ zmniejszenie pool_max w LS lub skalowanie ingest po stronie ES.
+
+Podsumowanie
+- W Twoich liczbach widać symptom “zbyt wiele FD/soketów” i zbyt niski limit – to naturalnie kończy się timeoutami po czasie.
+- Podniesienie LimitNOFILE + TCP keepalive + wymuszenie IPv4 + ograniczenie puli/validação idle w output-elasticsearch praktycznie rozwiązuje “po czasie” HostUnreachable/SocketTimeout w środowiskach bez proxy/LB.
+- Jeśli chcesz, podeślij po 30–60 minutach nowe:
+  - ss -s
+  - lsof -p $(pgrep -f org.logstash.Logstash) | wc -l
+  - i fragment loga (jeśli coś jeszcze sypie),
+  to potwierdzimy, że FD/ESTAB spadły i LS pracuje stabilnie.
+
+  --------------------------------
+
 curl -s -u USER:PASS https://ES:9200/_security/role/<role_name> | jq -r '
   to_entries[] | .key as $r |
   .value.indices[] | {role:$r, names:.names, privileges:.privileges}'
