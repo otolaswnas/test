@@ -1,3 +1,20 @@
+
+curl -X POST http://localhost:3000/api/access-control/serviceaccounts/123/permissions \
+  -H "Authorization: Bearer TWÓJ_TOKEN_ADMINA" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "permissions": [
+      {
+        "action": "org:read",
+        "scope": {
+          "type": "organization",
+          "id": 1
+        }
+      }
+    ]
+  }'
+
+-----------------
 Dzięki za liczby – to jest sedno problemu.
 
 Co widać z Twoich danych
