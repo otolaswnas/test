@@ -1,3 +1,183 @@
+clamp_max(
+
+  2 * clamp_max(
+    (
+      /* RED: workers < 3 */
+      (
+        (
+          count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"})
+          -
+          on (openshiftcluster)
+          (
+            count by (openshiftcluster) (
+              sum by (node, openshiftcluster) (
+                kube_node_role{role=~"master|control-plane", openshiftcluster=~"$openshiftcluster"}
+              ) > 0
+            )
+            or on (openshiftcluster)
+            (0 * count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"}))
+          )
+        ) < bool 3
+      )
+
+      + on (openshiftcluster)
+      /* RED: masters < 3 */
+      (
+        (
+          count by (openshiftcluster) (
+            sum by (node, openshiftcluster) (
+              kube_node_role{role=~"master|control-plane", openshiftcluster=~"$openshiftcluster"}
+            ) > 0
+          )
+          or on (openshiftcluster)
+          (0 * count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"}))
+        ) < bool 3
+      )
+
+      + on (openshiftcluster)
+      /* RED: NotReady > 3 */
+      (
+        (
+          sum by (openshiftcluster) (
+            kube_node_status_condition{condition="Ready", status="false", openshiftcluster=~"$openshiftcluster"} == 1
+          )
+          or on (openshiftcluster)
+          (0 * count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"}))
+        ) > bool 3
+      )
+
+      + on (openshiftcluster)
+      /* RED: ktokolwiek z Memory/Disk/PID pressure > 3 */
+      (
+        (
+          (
+            (
+              sum by (openshiftcluster) (
+                kube_node_status_condition{condition="MemoryPressure", status="true", openshiftcluster=~"$openshiftcluster"} == 1
+              )
+              or on (openshiftcluster)
+              (0 * count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"}))
+            ) > bool 3
+          )
+          + on (openshiftcluster)
+          (
+            (
+              sum by (openshiftcluster) (
+                kube_node_status_condition{condition="DiskPressure", status="true", openshiftcluster=~"$openshiftcluster"} == 1
+              )
+              or on (openshiftcluster)
+              (0 * count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"}))
+            ) > bool 3
+          )
+          + on (openshiftcluster)
+          (
+            (
+              sum by (openshiftcluster) (
+                kube_node_status_condition{condition="PIDPressure", status="true", openshiftcluster=~"$openshiftcluster"} == 1
+              )
+              or on (openshiftcluster)
+              (0 * count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"}))
+            ) > bool 3
+          )
+        )
+      )
+    )
+    , 1
+  )
+
+  +
+
+  1 * clamp_max(
+    (
+      /* YELLOW: dokładnie 3 workers i 3 masters */
+      (
+        (
+          (
+            count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"})
+            -
+            on (openshiftcluster)
+            (
+              count by (openshiftcluster) (
+                sum by (node, openshiftcluster) (
+                  kube_node_role{role=~"master|control-plane", openshiftcluster=~"$openshiftcluster"}
+                ) > 0
+              )
+              or on (openshiftcluster)
+              (0 * count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"}))
+            )
+          ) == bool 3
+        )
+        * on (openshiftcluster)
+        (
+          (
+            count by (openshiftcluster) (
+              sum by (node, openshiftcluster) (
+                kube_node_role{role=~"master|control-plane", openshiftcluster=~"$openshiftcluster"}
+              ) > 0
+            )
+            or on (openshiftcluster)
+            (0 * count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"}))
+          ) == bool 3
+        )
+      )
+
+      + on (openshiftcluster)
+      /* YELLOW: NotReady == 2 */
+      (
+        (
+          sum by (openshiftcluster) (
+            kube_node_status_condition{condition="Ready", status="false", openshiftcluster=~"$openshiftcluster"} == 1
+          )
+          or on (openshiftcluster)
+          (0 * count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"}))
+        ) == bool 2
+      )
+
+      + on (openshiftcluster)
+      /* YELLOW: ktokolwiek z Memory/Disk/PID pressure > 1 */
+      (
+        (
+          (
+            (
+              sum by (openshiftcluster) (
+                kube_node_status_condition{condition="MemoryPressure", status="true", openshiftcluster=~"$openshiftcluster"} == 1
+              )
+              or on (openshiftcluster)
+              (0 * count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"}))
+            ) > bool 1
+          )
+          + on (openshiftcluster)
+          (
+            (
+              sum by (openshiftcluster) (
+                kube_node_status_condition{condition="DiskPressure", status="true", openshiftcluster=~"$openshiftcluster"} == 1
+              )
+              or on (openshiftcluster)
+              (0 * count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"}))
+            ) > bool 1
+          )
+          + on (openshiftcluster)
+          (
+            (
+              sum by (openshiftcluster) (
+                kube_node_status_condition{condition="PIDPressure", status="true", openshiftcluster=~"$openshiftcluster"} == 1
+              )
+              or on (openshiftcluster)
+              (0 * count by (openshiftcluster) (kube_node_info{openshiftcluster=~"$openshiftcluster"}))
+            ) > bool 1
+          )
+        )
+      )
+    )
+    , 1
+  )
+
+, 2)
+
+
+
+
+
 Poniżej gotowa treść do zapisania jako plik TXT (np. ocp_cluster_status_stat.txt). Zawiera zmienną, zapytania PromQL oraz konfigurację panelu Stat w Grafanie 11.4. Zawarte są dwa warianty: A (jeśli masz kube_node_role – liczymy 3 mastery + 3 workery), B (fallback gdy kube_node_role brak – próg 6 nodów łącznie).
 
 ------------------------------------------------------------
