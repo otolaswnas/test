@@ -1,27 +1,9 @@
-3 * (
-/* oba joby muszą mieć przynajmniej 1 target up /
-sum by (openshiftcluster) (
-max by (openshiftcluster, job) (
-up{job="apiserver|kube-apiserver|etcd", openshiftcluster="openshiftcluster"} == 1 ) ) < bool 2 ) + ( /* bramka: liczymy dalej tylko jeśli oba joby są OK */ sum by (openshiftcluster) ( max by (openshiftcluster, job) ( up{job=~"apiserver|kube-apiserver|etcd", openshiftcluster=~"openshiftcluster"} == 1
-)
-) == bool 2
-)
-*
-(
-/ 2: choć jeden z operatorów (etcd lub kube-apiserver) NIE jest Available (wartość ≠1) /
-2 * (
-min by (openshiftcluster) (
-/ dla każdego operatora bierzemy sumę „(wartość==1)” → wyjdzie 1 gdy Available=1, inaczej 0 */
-sum by (name, openshiftcluster) (
-cluster_operator_conditions{
-condition="Available",
-name="etcd|kube-apiserver",
-openshiftcluster="openshiftcluster" } == 1 ) ) < bool 1 ) + /* 1: obaj Available, ale którykolwiek z nich ma Degraded=1 */ clamp_max( sum by (openshiftcluster) ( sum by (name, openshiftcluster) ( cluster_operator_conditions{ condition="Degraded", name=~"etcd|kube-apiserver", openshiftcluster=~"openshiftcluster"
-} == 1
-)
-),
-1
-)
-)
-
-Co to robi:
+# 3 = brak danych (którykolwiek z krytycznych jobów nie odpowiada)
+3 * (min(up{job=~"kube-apiserver|etcd", openshiftcluster="openshiftcluster"}) == 0)
++
+# 2 = krytyczny (etcd lub apiserver Available != 1)
+( min(cluster_operator_conditions{condition="Available",name=~"etcd|kube-apiserver",openshiftcluster="openshiftcluster"}) == 0 ) * 2
++
+# 1 = anomalie (obaj Available=1, ale którykolwiek Degraded=1)
+( min(cluster_operator_conditions{condition="Available",name=~"etcd|kube-apiserver",openshiftcluster="openshiftcluster"}) == 1 )
+* clamp_max(sum(cluster_operator_conditions{condition="Degraded",name=~"etcd|kube-apiserver",openshiftcluster="openshiftcluster"} == 1), 1)
