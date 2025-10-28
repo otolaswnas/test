@@ -1,30 +1,66 @@
-(
-  # 3 = brak danych (którykolwiek z krytycznych jobów nie odpowiada)
-  3 * (
-    (min by (openshiftcluster) (up{job=~"kube-apiserver|etcd", openshiftcluster=~"$openshiftcluster"}) == 0)
-    or vector(0)
+OK — poniżej gotowe zapytania PromQL do paneli Stat (Grafana 11.4), które pokażą liczbę masterów, workerów i wszystkich nodów per klaster (label: openshiftcluster). Ustaw w panelach:
+- Query options: Instant = ON
+- Value options: Fields = All values, Calculation = Last (not null)
+- Display name/Legend: {{openshiftcluster}
+
+Zmienna (jeśli jeszcze nie masz)
+- openshiftcluster (Query → Prometheus): label_values(kube_node_info, openshiftcluster)
+- Multi-value: ON, Include All: ON (All value: .*)
+
+1) Stat: Masters per cluster
+Jeśli masz kube_node_role:
+- Query:
+  count by (openshiftcluster) (
+    sum by (node, openshiftcluster) (
+      kube_node_role{role=~"master|control-plane", openshiftcluster=~"$openshiftcluster"}
+    ) > 0
   )
-)
-+
-(
-  # 2 = krytyczny (etcd lub apiserver Available != 1)
-  2 * (
-    (min by (openshiftcluster) (cluster_operator_conditions{condition="Available",name=~"etcd|kube-apiserver",openshiftcluster=~"$openshiftcluster"}) == 0)
-    or vector(0)
-  )
-)
-+
-(
-  # 1 = anomalie (obaj Available=1, ale którykolwiek Degraded=1)
-  (
-    ((min by (openshiftcluster) (cluster_operator_conditions{condition="Available",name=~"etcd|kube-apiserver",openshiftcluster=~"$openshiftcluster"}) == 1) or vector(0))
-    *
-    clamp_max(
-      (
-        sum by (openshiftcluster) (cluster_operator_conditions{condition="Degraded",name=~"etcd|kube-apiserver",openshiftcluster=~"$openshiftcluster"} == 1)
-        or vector(0)
-      ),
-      1
+
+Fallback (bez kube_node_role — po etykietach):
+- Query:
+  count by (openshiftcluster) (
+    max by (node, openshiftcluster) (
+      kube_node_labels{label_node_role_kubernetes_io_master="true", openshiftcluster=~"$openshiftcluster"} == 1
+      or
+      kube_node_labels{label_node_role_kubernetes_io_control_plane="true", openshiftcluster=~"$openshiftcluster"} == 1
     )
   )
-)
+
+2) Stat: Workers (compute) per cluster
+Jeśli masz kube_node_role:
+- Query:
+  count by (openshiftcluster) (
+    sum by (node, openshiftcluster) (
+      kube_node_role{role=~"worker|infra", openshiftcluster=~"$openshiftcluster"}
+    ) > 0
+  )
+
+Fallback (po etykietach):
+- Query:
+  count by (openshiftcluster) (
+    max by (node, openshiftcluster) (
+      kube_node_labels{label_node_role_kubernetes_io_worker="true", openshiftcluster=~"$openshiftcluster"} == 1
+      or
+      kube_node_labels{label_node_role_kubernetes_io_infra="true",  openshiftcluster=~"$openshiftcluster"} == 1
+    )
+  )
+
+3) Stat: Wszystkie nody per cluster (Total)
+- Query:
+  count by (openshiftcluster) (
+    kube_node_info{openshiftcluster=~"$openshiftcluster"}
+  )
+
+Dodatkowe (opcjonalnie)
+- Ready teraz per cluster:
+  sum by (openshiftcluster) (
+    kube_node_status_condition{condition="Ready", status="true", openshiftcluster=~"$openshiftcluster"}
+  )
+- NotReady teraz per cluster:
+  sum by (openshiftcluster) (
+    kube_node_status_condition{condition="Ready", status="false", openshiftcluster=~"$openshiftcluster"}
+  )
+
+Wskazówki
+- Każdy z powyższych paneli pokaże jedną wartość na klaster (Fields: All values).
+- Jeśli chcesz jeden panel na każdy typ (Masters/Workers/Total), po prostu utwórz 3 panele Stat z odpowiednimi zapytaniami.
