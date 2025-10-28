@@ -1,23 +1,18 @@
-# A: brak danych dla krytycznych operatorów (etcd/apiserver)
+# Sprawdź czy Prometheus ma dane z apiservera i etcd
 (
-  3 * clamp_max(absent(cluster_operator_conditions{condition="Available",name=~"etcd|kube-apiserver"}), 1)
-)
+  min(up{job=~"kube-apiserver|etcd"}) == 0
+) * 3
 +
-# Jeśli dane są (1 - A), stosujemy hierarchię: 2 > 1 > 0
 (
-  (1 - clamp_max(absent(cluster_operator_conditions{condition="Available",name=~"etcd|kube-apiserver"}), 1))
+  (min(up{job=~"kube-apiserver|etcd"}) == 1)
   *
   (
-    # C: krytyczny (etcd/apiserver Available == 0) ⇒ 2
-    (
-      2 * clamp_max( ((min(cluster_operator_conditions{condition="Available",name=~"etcd|kube-apiserver"}) == 0) or vector(0)), 1)
-    )
+    # Krytyczny stan = 2
+    ( (min(cluster_operator_conditions{condition="Available",name=~"etcd|kube-apiserver"}) == 0) * 2 )
     +
-    # Jeśli nie krytyczny (1 - C), sprawdź anomalie (Degraded > 0) ⇒ 1
-    (
-      (1 - clamp_max( ((min(cluster_operator_conditions{condition="Available",name=~"etcd|kube-apiserver"}) == 0) or vector(0)), 1))
-      *
-      clamp_max( ( ((sum(cluster_operator_conditions{condition="Degraded"} == 1) or vector(0)) > 0) or vector(0) ), 1)
+    # Anomalie = 1
+    ( (min(cluster_operator_conditions{condition="Available",name=~"etcd|kube-apiserver"}) == 1)
+      * clamp_max(sum(cluster_operator_conditions{condition="Degraded"} == 1), 1)
     )
   )
 )
