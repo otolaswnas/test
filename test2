@@ -1,3 +1,25 @@
+(
+  # Krytyczny stan: etcd lub kube-apiserver niedostępne
+  max by(operator) (
+    (cluster_operator_conditions{condition="Available",status="false",name=~"etcd|kube-apiserver"})
+  ) * 2
+)
+OR on() (
+  # Anomalie: są zdegradowane operatory, ale krytyczne działają
+  clamp_max(
+    sum(cluster_operator_conditions{condition="Degraded",status="true"}) > 0,
+    1
+  )
+)
+OR on() (
+  # OK: brak degradacji, wszystko dostępne
+  0
+)
+
+
+
+
+------------------------###############################33
 Poniżej gotowa treść do zapisania jako plik TXT (np. ocp_cluster_3stats.txt). Zawiera 3 osobne panele Stat (Grafana 11.4), każdy zwraca 0/1/2:
 - 0 = Available
 - 1 = Warning
