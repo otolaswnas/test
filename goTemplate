@@ -1,0 +1,188 @@
+**Najprościej: Go templates w Helm to „programowanie w YAML-u”. Masz plik `values.yaml` (dane wejściowe), szablon z logiką (`if`, `range`, `with`, `define/include`), a Helm generuje wynikowy manifest. Pokażę Ci każdy komponent krok po kroku: wartości → szablon → wynik.**
+
+---
+
+# 1. **if / else**
+
+### values.yaml
+```yaml
+ingress:
+  enabled: true
+```
+
+### szablon
+```yaml
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-app
+{{- else }}
+# Ingress wyłączony
+{{- end }}
+```
+
+### wynik
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-app
+```
+
+---
+
+# 2. **range** (pętla)
+
+### values.yaml
+```yaml
+extraEnv:
+  - name: ENV
+    value: prod
+  - name: DEBUG
+    value: "false"
+```
+
+### szablon
+```yaml
+env:
+{{- range .Values.extraEnv }}
+  - name: {{ .name }}
+    value: {{ .value | quote }}
+{{- end }}
+```
+
+### wynik
+```yaml
+env:
+  - name: ENV
+    value: "prod"
+  - name: DEBUG
+    value: "false"
+```
+
+---
+
+# 3. **with** (zmiana kontekstu)
+
+### values.yaml
+```yaml
+resources:
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+```
+
+### szablon
+```yaml
+{{- with .Values.resources }}
+resources:
+  limits:
+    cpu: {{ .limits.cpu }}
+    memory: {{ .limits.memory }}
+{{- end }}
+```
+
+### wynik
+```yaml
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+```
+
+---
+
+# 4. **define / include** (funkcje szablonowe)
+
+### helpers.tpl
+```yaml
+{{- define "myapp.labels" -}}
+app: my-app
+release: {{ .Release.Name }}
+{{- end }}
+```
+
+### szablon
+```yaml
+metadata:
+  labels:
+{{ include "myapp.labels" . | nindent 4 }}
+```
+
+### wynik
+```yaml
+metadata:
+  labels:
+    app: my-app
+    release: my-release
+```
+
+---
+
+# 5. **funkcje i potoki**
+
+### values.yaml
+```yaml
+service:
+  type: ""
+  port: 8080
+```
+
+### szablon
+```yaml
+spec:
+  type: {{ .Values.service.type | default "ClusterIP" }}
+  ports:
+    - port: {{ .Values.service.port }}
+```
+
+### wynik
+```yaml
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+```
+
+---
+
+# 6. **globalny kontekst `$.`**
+
+### values.yaml
+```yaml
+hosts:
+  - api.example.com
+  - app.example.com
+```
+
+### szablon
+```yaml
+{{- range .Values.hosts }}
+- host: {{ . }}
+  name: {{ $.Release.Name }}-{{ . | replace "." "-" }}
+{{- end }}
+```
+
+### wynik
+```yaml
+- host: api.example.com
+  name: my-release-api-example-com
+- host: app.example.com
+  name: my-release-app-example-com
+```
+
+---
+
+# ✅ Podsumowanie
+
+- **if/else** → warunki (wstawia fragmenty tylko gdy spełnione).  
+- **range** → pętle po listach/mapach.  
+- **with** → skraca ścieżki do zagnieżdżonych wartości.  
+- **define/include** → reużywalne fragmenty (jak funkcje).  
+- **funkcje/pipelines** → transformacje (`default`, `quote`, `toYaml`, `nindent`).  
+- **$.** → odwołanie do globalnego kontekstu, gdy jesteś w pętli.  
+
+---
+
+👉 Chcesz, żebym przygotował **pełny mini-chart** (plik `Chart.yaml`, `values.yaml`, `templates/deployment.yaml`) i pokazał jak wygląda wynik `helm template`? To da Ci kompletny obraz procesu od A do Z.
