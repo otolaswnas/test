@@ -1,3 +1,8 @@
+--query-range.split-interval=24h
+--query-range.max-query-length=1d
+--query-frontend.downsampling.auto-downsampling=true
+
+-------------------------------------------
 **Najprościej: Go templates w Helm to „programowanie w YAML-u”. Masz plik `values.yaml` (dane wejściowe), szablon z logiką (`if`, `range`, `with`, `define/include`), a Helm generuje wynikowy manifest. Pokażę Ci każdy komponent krok po kroku: wartości → szablon → wynik.**
 
 ---
