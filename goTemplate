@@ -1,3 +1,82 @@
+Świetne pytanie 🙂 – jeśli nie chcesz ruszać **oryginalnego Helm charta**, masz kilka sposobów, żeby obejść logikę ustawiania `runAsUser: 0` i capabilities:
+
+---
+
+## 🔧 Rozwiązania bez modyfikacji charta
+
+### 1. **Override przez `values.yaml`**
+Większość chartów pozwala nadpisać `securityContext` w `values.yaml`.  
+Sprawdź, czy w Twoim chartcie istnieje coś takiego jak:
+
+```yaml
+agent:
+  presets:
+    default:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        capabilities: {}
+```
+
+Jeśli tak – to nadpisze wartości ustawiane przez helpery.  
+Ważne: w Helm logika `set` działa tak, że **ostatnie przypisanie wygrywa**. Jeśli w `values.yaml` jawnie podasz `securityContext`, to helper nie nadpisze tego.
+
+---
+
+### 2. **Patch przez `helm upgrade --set`**
+Możesz wprost przy instalacji/upgrade podać:
+
+```bash
+helm upgrade elastic-agent ./elastic-agent-chart \
+  --set agent.presets.default.securityContext.runAsUser=1000 \
+  --set agent.presets.default.securityContext.runAsGroup=1000 \
+  --set agent.presets.default.securityContext.capabilities={}
+```
+
+To pozwala uniknąć edycji plików charta, a jedynie sterujesz wartościami.
+
+---
+
+### 3. **Helm post-renderer (np. `kustomize`)**
+Helm ma opcję `--post-renderer`, gdzie możesz przepuścić wygenerowane manifesty przez narzędzie (np. `kustomize` albo własny skrypt), które usunie/zmieni `runAsUser: 0` i capabilities.  
+Przykład prostego patcha w `kustomize`:
+
+```yaml
+patchesStrategicMerge:
+- |
+  apiVersion: apps/v1
+  kind: DaemonSet
+  metadata:
+    name: elastic-agent
+  spec:
+    template:
+      spec:
+        containers:
+        - name: elastic-agent
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            capabilities: {}
+```
+
+---
+
+### 4. **Helm hooks / dodatkowy overlay**
+Możesz też stworzyć własny chart typu „wrapper”, który jako dependency wciąga oryginalny chart i nadpisuje tylko `values.yaml`. To daje czystą separację: oryginalny chart zostaje nietknięty, a Ty masz własne ustawienia.
+
+---
+
+✅ Podsumowanie:  
+Nie musisz edytować helperów – wystarczy nadpisać `securityContext` w `values.yaml` albo przez `--set`, albo użyć post-renderera (`kustomize`). To najczystsze rozwiązanie, bo nie ruszasz źródła charta, a masz pełną kontrolę nad UID/GID i capabilities.
+
+---
+
+Chcesz, żebym przygotował gotowy przykład `values.yaml`, który całkowicie wyłącza capabilities i ustawia `runAsUser/runAsGroup` na 1000?
+
+
+
+
+--------------------------------------------------------------------
 --query-range.split-interval=24h
 --query-range.max-query-length=1d
 --query-frontend.downsampling.auto-downsampling=true
