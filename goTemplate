@@ -1,3 +1,56 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: []  # nie dodajemy zasobów; używamy tylko patchy na tym, co wyrenderuje Helm
+patchesStrategicMerge:
+  - remove-fleet-token-env.yaml
+
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elastic-agent             # dostosuj do swojej nazwy
+spec:
+  template:
+    spec:
+      containers:
+        - name: elastic-agent     # dostosuj do nazwy kontenera w chartcie
+          env:
+            - name: FLEET_ENROLLMENT_TOKEN
+              value: "dummy"
+              $patch: delete
+
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: elastic-agent-clusterA
+spec:
+  project: default
+  sources:
+    - repoURL: https://git.example.com/helm-charts.git
+      targetRevision: main
+      chart: elastic-agent
+      helm:
+        valueFiles:
+          - $values/clusterA/values/c1c.yaml
+        postRenderer:
+          kustomize:
+            path: clusterA/overlays/remove-dummy-env
+    - repoURL: https://git.example.com/agent-config.git
+      targetRevision: main
+      ref: values
+      path: clusterA/manifests      # opcjonalnie: tu możesz mieć VSS i inne CRD
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+
+
+
+------------------------------------------
 Świetne pytanie 🙂 – jeśli nie chcesz ruszać **oryginalnego Helm charta**, masz kilka sposobów, żeby obejść logikę ustawiania `runAsUser: 0` i capabilities:
 
 ---
