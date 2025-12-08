@@ -1,0 +1,374 @@
+Jasne — bez oficjalnej biblioteki, tylko REST przez requests. Ten skrypt:
+- łączy się z Elasticsearch,
+- pobiera wszystkie index templates (composable i legacy),
+- robi lokalny backup do katalogu (po jednym pliku JSON na template),
+- tworzy lub nadpisuje index templates z plików backupu (albo z pojedynczego pliku),
+- działa jako CLI: backup, apply, put-one.
+
+Wymagania: pip install requests
+
+Kod:
+
+```python
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import argparse
+import base64
+import json
+import os
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+
+import requests
+from requests.auth import HTTPBasicAuth
+
+
+# ----------------------------- Połączenie / Session -----------------------------
+
+def create_es_session(
+    base_url: str,
+    basic_auth: Optional[Tuple[str, str]] = None,
+    api_key: Optional[str] = None,   # "id:key" lub gotowy Base64
+    verify: bool | str = True,
+    default_headers: Optional[Dict[str, str]] = None,
+    timeout: float = 30.0,
+) -> requests.Session:
+    """
+    Tworzy sesję HTTP do Elasticsearch z nagłówkami i uwierzytelnieniem.
+    - base_url: np. "https://localhost:9200"
+    - basic_auth: ("user", "pass")
+    - api_key: "id:key" (zostanie zbase64-owane) albo gotowy base64 (długa, bez dwukropka)
+    - verify: True/False lub ścieżka do certyfikatu CA
+    - timeout: domyślny timeout per-request
+    """
+    s = requests.Session()
+    s.verify = verify
+    s.timeout = timeout  # użyjemy w helperze, ale trzymamy dla czytelności
+    headers = {"Content-Type": "application/json"}
+    if default_headers:
+        headers.update(default_headers)
+
+    if api_key:
+        if ":" in api_key:
+            raw = api_key.encode("utf-8")
+            encoded = base64.b64encode(raw).decode("ascii")
+        else:
+            encoded = api_key
+        headers["Authorization"] = f"ApiKey {encoded}"
+
+    if basic_auth:
+        s.auth = HTTPBasicAuth(basic_auth[0], basic_auth[1])
+
+    s.headers.update(headers)
+    s.base_url = base_url.rstrip("/")  # własny atrybut pomocniczy
+    return s
+
+
+def es_request(
+    session: requests.Session,
+    method: str,
+    path: str,
+    params: Optional[Dict[str, Any]] = None,
+    body: Optional[Any] = None,
+    timeout: Optional[float] = None,
+) -> Any:
+    """
+    Helper do wykonywania requestów na endpointy ES.
+    Zwraca zdekodowane JSON (jeśli jest), albo None dla pustej odpowiedzi.
+    """
+    url = f"{session.base_url}/{path.lstrip('/')}"
+    resp = session.request(method, url, params=params, json=body, timeout=timeout or session.timeout)
+    if not resp.ok:
+        raise RuntimeError(
+            f"Elasticsearch API error {resp.status_code} {resp.reason}: {resp.text}"
+        )
+    text = (resp.text or "").strip()
+    if text:
+        try:
+            return resp.json()
+        except json.JSONDecodeError:
+            return text
+    return None
+
+
+# ----------------------------- Pobieranie templatek ----------------------------
+
+def get_all_composable_templates(session: requests.Session) -> Dict[str, Dict[str, Any]]:
+    """
+    Zwraca dict: nazwa -> index_template body (gotowy do PUT /_index_template/{name})
+    """
+    data = es_request(session, "GET", "/_index_template")
+    mapping: Dict[str, Dict[str, Any]] = {}
+    for item in data.get("index_templates", []):
+        name = item.get("name")
+        body = item.get("index_template", {})
+        if name:
+            mapping[name] = body
+    return mapping
+
+
+def get_all_legacy_templates(session: requests.Session) -> Dict[str, Dict[str, Any]]:
+    """
+    Zwraca dict: nazwa -> legacy template body (gotowy do PUT /_template/{name})
+    """
+    data = es_request(session, "GET", "/_template")
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+# ----------------------------- Backup do plików --------------------------------
+
+def _sanitize_filename(name: str) -> str:
+    # Bezpieczna nazwa pliku: litery, cyfry, -, _, .
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+
+
+def backup_index_templates(
+    session: requests.Session,
+    out_dir: Optional[Path] = None,
+    include_legacy: bool = True,
+) -> Path:
+    """
+    Tworzy folder z backupem wszystkich index templates.
+    Struktura:
+      backup_root/
+        manifest.json
+        composable/<name>.json
+        legacy/<name>.json        (jeśli include_legacy=True)
+    Zwraca ścieżkę do katalogu backupu.
+    """
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    root = Path(out_dir) if out_dir else Path(f"es_templates_backup-{timestamp}")
+    (root / "composable").mkdir(parents=True, exist_ok=True)
+    if include_legacy:
+        (root / "legacy").mkdir(parents=True, exist_ok=True)
+
+    composable = get_all_composable_templates(session)
+    legacy = get_all_legacy_templates(session) if include_legacy else {}
+
+    # Zapis per-template
+    for name, body in composable.items():
+        fn = _sanitize_filename(name) + ".json"
+        with open(root / "composable" / fn, "w", encoding="utf-8") as f:
+            json.dump(body, f, indent=2, ensure_ascii=False)
+    for name, body in legacy.items():
+        fn = _sanitize_filename(name) + ".json"
+        with open(root / "legacy" / fn, "w", encoding="utf-8") as f:
+            json.dump(body, f, indent=2, ensure_ascii=False)
+
+    # Manifest
+    manifest = {
+        "created_at_utc": timestamp,
+        "base_url": getattr(session, "base_url", ""),
+        "counts": {
+            "composable": len(composable),
+            "legacy": len(legacy),
+        },
+        "note": "Pliki w podkatalogach są gotowe do PUT na odpowiednie endpointy.",
+    }
+    with open(root / "manifest.json", "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
+
+    return root
+
+
+# ----------------------------- Tworzenie / Nadpisywanie ------------------------
+
+def put_index_template(
+    session: requests.Session,
+    name: str,
+    body: Dict[str, Any],
+    composable: bool = True,
+    create: bool = False,
+    cause: Optional[str] = None,
+) -> Any:
+    """
+    Tworzy lub podmienia index template.
+    - composable=True -> PUT /_index_template/{name}
+    - composable=False (legacy) -> PUT /_template/{name}
+    - create=True -> błąd jeśli istnieje
+    - cause -> pojawi się w historii zmian metadanych klastra (o ile obsługiwane)
+    """
+    params: Dict[str, Any] = {}
+    if create:
+        params["create"] = "true"
+    if cause:
+        params["cause"] = cause
+
+    path = f"/_index_template/{name}" if composable else f"/_template/{name}"
+    return es_request(session, "PUT", path, params=params, body=body)
+
+
+def apply_templates_from_dir(
+    session: requests.Session,
+    source_dir: Path,
+    only: str = "both",    # "both" | "composable" | "legacy"
+    create: bool = False,
+    verbose: bool = True,
+) -> None:
+    """
+    Wczytuje pliki JSON z katalogu (strukturę jak z backupu) i robi PUT do ES.
+    """
+    source_dir = Path(source_dir)
+    if not source_dir.exists():
+        raise FileNotFoundError(f"Nie znaleziono katalogu: {source_dir}")
+
+    def apply_one_folder(folder: Path, composable: bool):
+        if not folder.exists():
+            return 0, 0
+        ok = 0
+        fail = 0
+        for path in sorted(folder.glob("*.json")):
+            name = path.stem
+            with open(path, "r", encoding="utf-8") as f:
+                body = json.load(f)
+            try:
+                put_index_template(session, name, body, composable=composable, create=create)
+                ok += 1
+                if verbose:
+                    print(f"[OK] {'composable' if composable else 'legacy'} -> {name}")
+            except Exception as e:
+                fail += 1
+                print(f"[ERR] {'composable' if composable else 'legacy'} -> {name}: {e}")
+        return ok, fail
+
+    total_ok = total_fail = 0
+
+    if only in ("both", "composable"):
+        ok, fail = apply_one_folder(source_dir / "composable", composable=True)
+        total_ok += ok
+        total_fail += fail
+
+    if only in ("both", "legacy"):
+        ok, fail = apply_one_folder(source_dir / "legacy", composable=False)
+        total_ok += ok
+        total_fail += fail
+
+    print(f"Zakończono. Sukces: {total_ok}, błędy: {total_fail}")
+
+
+def put_template_from_file(
+    session: requests.Session,
+    name: str,
+    body_file: Path,
+    composable: bool = True,
+    create: bool = False,
+    cause: Optional[str] = None,
+) -> None:
+    """
+    PUT pojedynczego template z pliku JSON.
+    """
+    with open(body_file, "r", encoding="utf-8") as f:
+        body = json.load(f)
+    put_index_template(session, name, body, composable=composable, create=create, cause=cause)
+
+
+# ----------------------------- CLI ---------------------------------------------
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Backup i odtwarzanie index templates (REST API, bez biblioteki elasticsearch)")
+
+    # Wspólne połączenie
+    p.add_argument("--base-url", required=True, help="URL klastra ES, np. https://localhost:9200")
+    p.add_argument("--user", help="Użytkownik (Basic Auth)")
+    p.add_argument("--password", help="Hasło (Basic Auth)")
+    p.add_argument("--api-key", help='ApiKey w formacie "id:key" lub już zbase64-owane')
+    p.add_argument("--insecure", action="store_true", help="Nie weryfikuj certyfikatu TLS (verify=False)")
+    p.add_argument("--ca-cert", help="Ścieżka do certyfikatu CA (verify=<path>)")
+    p.add_argument("--timeout", type=float, default=30.0, help="Timeout w sekundach (domyślnie 30)")
+
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    # backup
+    p_backup = sub.add_parser("backup", help="Zrób backup index templates do katalogu")
+    p_backup.add_argument("--out-dir", help="Katalog docelowy (domyślnie es_templates_backup-<TS>)")
+    p_backup.add_argument("--no-legacy", action="store_true", help="Pomiń legacy templates")
+
+    # apply
+    p_apply = sub.add_parser("apply", help="Wgraj (PUT) templates z katalogu backupu")
+    p_apply.add_argument("--src-dir", required=True, help="Katalog z backupem")
+    p_apply.add_argument("--only", choices=["both", "composable", "legacy"], default="both", help="Zakres wgrywania")
+    p_apply.add_argument("--create", action="store_true", help="Użyj ?create=true (zawiedzie, jeśli istnieje)")
+
+    # put-one
+    p_put = sub.add_parser("put-one", help="PUT pojedynczego template z pliku JSON")
+    p_put.add_argument("--name", required=True, help="Nazwa template")
+    kind = p_put.add_mutually_exclusive_group(required=True)
+    kind.add_argument("--composable", action="store_true", help="Composable index template")
+    kind.add_argument("--legacy", action="store_true", help="Legacy index template")
+    p_put.add_argument("--file", required=True, help="Plik JSON z ciałem template")
+    p_put.add_argument("--create", action="store_true", help="Użyj ?create=true")
+    p_put.add_argument("--cause", help="Opis zmiany (cause)")
+
+    return p.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    verify: bool | str = True
+    if args.insecure:
+        verify = False
+    elif args.ca_cert:
+        verify = args.ca_cert
+
+    basic_auth = (args.user, args.password) if args.user and args.password else None
+
+    session = create_es_session(
+        base_url=args.base_url,
+        basic_auth=basic_auth,
+        api_key=args.api_key,
+        verify=verify,
+        timeout=args.timeout,
+    )
+
+    if args.cmd == "backup":
+        include_legacy = not args.no_legacy
+        out_dir = Path(args.out_dir) if args.out_dir else None
+        target = backup_index_templates(session, out_dir=out_dir, include_legacy=include_legacy)
+        print(f"Backup zapisany w: {target.resolve()}")
+
+    elif args.cmd == "apply":
+        apply_templates_from_dir(
+            session,
+            source_dir=Path(args.src_dir),
+            only=args.only,
+            create=args.create,
+            verbose=True,
+        )
+
+    elif args.cmd == "put-one":
+        composable = True if args.composable else False
+        put_template_from_file(
+            session,
+            name=args.name,
+            body_file=Path(args.file),
+            composable=composable,
+            create=args.create,
+            cause=args.cause,
+        )
+        print(f"PUT {'composable' if composable else 'legacy'} template '{args.name}' wykonany.")
+
+    else:
+        raise SystemExit("Nieznane polecenie")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Szybkie użycie:
+- Backup wszystkich templatek:
+  python es_templates.py --base-url https://localhost:9200 --user elastic --password secret backup
+- Odtworzenie (nadpisanie lub utworzenie) z katalogu:
+  python es_templates.py --base-url https://localhost:9200 --user elastic --password secret apply --src-dir ./es_templates_backup-20250101-120000
+- PUT pojedynczej templatki z pliku:
+  python es_templates.py --base-url https://localhost:9200 --user elastic --password secret put-one --name my_logs_template --composable --file ./my_logs_template.json
+
+Uwaga:
+- Dla composable index template w ciele JSON używaj pól takich jak: index_patterns, template, priority, version, composed_of, data_stream, _meta (nie "metadata").
+- Jeśli w composable używasz composed_of, to w klastrze muszą istnieć wymagane component templates — inaczej PUT się wywali.
