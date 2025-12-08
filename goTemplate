@@ -1,3 +1,416 @@
+Jasne! Poniżej masz prosty, podzielony na funkcje kod w Pythonie, który:
+- łączy się z Elasticsearch,
+- listuje index templates (composable i opcjonalnie legacy),
+- aktualizuje (merge) lub całkowicie podmienia istniejący template przez REST API.
+
+Wymaga: pip install requests
+
+```python
+import base64
+import copy
+import json
+from typing import Any, Dict, List, Optional, Tuple
+
+import requests
+from requests.auth import HTTPBasicAuth
+
+
+# ----------------------------- Połączenie / Session -----------------------------
+
+def create_es_session(
+    base_url: str,
+    basic_auth: Optional[Tuple[str, str]] = None,
+    api_key: Optional[str | Tuple[str, str]] = None,
+    verify: bool | str = True,  # True/False lub ścieżka do CA bundle
+    default_headers: Optional[Dict[str, str]] = None,
+) -> requests.Session:
+    """
+    Tworzy sesję HTTP do Elasticsearch z nagłówkami i uwierzytelnieniem.
+    - base_url: np. "https://localhost:9200"
+    - basic_auth: ("user", "pass")
+    - api_key: base64 ApiKey lub tuple ("id", "api_key") – zostanie zbase64-owane
+    - verify: True/False lub ścieżka do certyfikatu CA
+    """
+    s = requests.Session()
+    s.verify = verify
+    headers = {"Content-Type": "application/json"}
+    if default_headers:
+        headers.update(default_headers)
+
+    if api_key:
+        if isinstance(api_key, tuple):
+            raw = f"{api_key[0]}:{api_key[1]}".encode("utf-8")
+            encoded = base64.b64encode(raw).decode("ascii")
+            headers["Authorization"] = f"ApiKey {encoded}"
+        else:
+            # Zakładamy, że to już jest gotowy base64 ApiKey
+            headers["Authorization"] = f"ApiKey {api_key}"
+
+    if basic_auth:
+        s.auth = HTTPBasicAuth(basic_auth[0], basic_auth[1])
+
+    s.headers.update(headers)
+    # Timeout ustawiamy per-request (w helperze es_request)
+    s.base_url = base_url.rstrip("/")
+    return s
+
+
+def es_request(
+    session: requests.Session,
+    method: str,
+    path: str,
+    params: Optional[Dict[str, Any]] = None,
+    body: Optional[Dict[str, Any]] = None,
+    timeout: float = 30.0,
+) -> Any:
+    """
+    Helper do wykonywania requestów na endpointy ES.
+    Zwraca zdekodowane JSON (jeśli jest), albo None dla pustej odpowiedzi.
+    """
+    url = f"{session.base_url}/{path.lstrip('/')}"
+    resp = session.request(method, url, params=params, json=body, timeout=timeout)
+    if not resp.ok:
+        raise RuntimeError(
+            f"Elasticsearch API error {resp.status_code} {resp.reason}: {resp.text}"
+        )
+    if resp.text.strip():
+        try:
+            return resp.json()
+        except json.JSONDecodeError:
+            return resp.text
+    return None
+
+
+# ----------------------------- Listing templatek -------------------------------
+
+def list_index_templates(
+    session: requests.Session,
+    include_legacy: bool = False,
+    timeout: float = 30.0,
+) -> Dict[str, List[str]]:
+    """
+    Zwraca nazwy templatek:
+      - composable (/_index_template)
+      - legacy (/_template) jeśli include_legacy=True
+    """
+    out: Dict[str, List[str]] = {"composable": []}
+    try:
+        data = es_request(session, "GET", "/_index_template", timeout=timeout)
+        out["composable"] = [t["name"] for t in data.get("index_templates", [])]
+    except Exception:
+        out["composable"] = []
+
+    if include_legacy:
+        try:
+            data = es_request(session, "GET", "/_template", timeout=timeout)
+            out["legacy"] = list(data.keys()) if isinstance(data, dict) else []
+        except Exception:
+            out["legacy"] = []
+
+    return out
+
+
+def get_index_template(
+    session: requests.Session,
+    name: str,
+    composable: bool = True,
+    timeout: float = 30.0,
+) -> Dict[str, Any]:
+    """
+    Pobiera (pełne) ciało templatki po nazwie.
+    - composable=True -> GET /_index_template/{name}
+    - composable=False (legacy) -> GET /_template/{name}
+    """
+    if composable:
+        data = es_request(session, "GET", f"/_index_template/{name}", timeout=timeout)
+        items = data.get("index_templates", [])
+        if not items:
+            raise KeyError(f"Composable index template '{name}' nie znaleziono")
+        return items[0]["index_template"]
+    else:
+        data = es_request(session, "GET", f"/_template/{name}", timeout=timeout)
+        if name not in data:
+            raise KeyError(f"Legacy index template '{name}' nie znaleziono")
+        return data[name]
+
+
+# ----------------------------- Replace / Update --------------------------------
+
+def put_index_template(
+    session: requests.Session,
+    name: str,
+    body: Dict[str, Any],
+    composable: bool = True,
+    create: bool = False,
+    cause: Optional[str] = None,
+    timeout: float = 30.0,
+) -> Any:
+    """
+    Tworzy lub podmienia indeksową templatkę.
+    - create=True spowoduje błąd, jeśli już istnieje
+    - cause=opis pojawi się w historii audytu (cluster metadata)
+    """
+    params: Dict[str, Any] = {}
+    if create:
+        params["create"] = "true"
+    if cause:
+        params["cause"] = cause
+
+    path = f"/_index_template/{name}" if composable else f"/_template/{name}"
+    return es_request(session, "PUT", path, params=params, body=body, timeout=timeout)
+
+
+def deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Głęboki merge słowników. Wartości z b nadpisują a.
+    """
+    res = copy.deepcopy(a)
+    for k, v in b.items():
+        if k in res and isinstance(res[k], dict) and isinstance(v, dict):
+            res[k] = deep_merge(res[k], v)
+        else:
+            res[k] = v
+    return res
+
+
+def update_index_template(
+    session: requests.Session,
+    name: str,
+    patch: Dict[str, Any],
+    composable: bool = True,
+    timeout: float = 30.0,
+) -> Dict[str, Any]:
+    """
+    Aktualizacja istniejącej templatki przez merge (patch).
+    1) Pobiera bieżące ciało,
+    2) Merguje z 'patch',
+    3) PUT całości (zaktualizowanej).
+    """
+    current = get_index_template(session, name, composable=composable, timeout=timeout)
+    merged = deep_merge(current, patch)
+    put_index_template(session, name, merged, composable=composable, timeout=timeout)
+    return merged
+
+
+# ----------------------------- Przykład użycia ---------------------------------
+
+if __name__ == "__main__":
+    # Uzupełnij pod siebie:
+    BASE_URL = "https://localhost:9200"
+    BASIC_AUTH = ("elastic", "changeme")     # albo None
+    API_KEY = None                           # np. "BASE64_API_KEY" lub ("id","key")
+    VERIFY = False                           # w dev można False; w prod -> True/ścieżka do CA
+
+    s = create_es_session(BASE_URL, basic_auth=BASIC_AUTH, api_key=API_KEY, verify=VERIFY)
+
+    # 1) Lista templatek
+    templates = list_index_templates(s, include_legacy=True)
+    print("Templates:", templates)
+
+    # 2) Podmiana (replace) composable index template
+    # Uwaga: dla composable template body ma strukturę:
+    # { "index_patterns": [...], "template": { "settings": {...}, "mappings": {...}, "aliases": {...} }, ... }
+    new_template_body = {
+        "index_patterns": ["my-logs-*"],
+        "priority": 500,
+        "template": {
+            "settings": {
+                "number_of_shards": 1,
+                "number_of_replicas": 0
+            },
+            "mappings": {
+                "properties": {
+                    "@timestamp": {"type": "date"},
+                    "message": {"type": "text"}
+                }
+            }
+        },
+        "version": 1,
+        "metadata": {"owner": "team-observability"}
+    }
+    put_index_template(s, "my_logs_template", new_template_body, composable=True, create=False, cause="initial replace")
+    print("Zrobione: replace composable template 'my_logs_template'")
+
+    # 3) Update (merge/patch) – np. dorzucamy ILM i alias
+    patch_body = {
+        "template": {
+            "settings": {
+                "index.lifecycle.name": "my-ilm-policy"
+            },
+            "aliases": {
+                "my-logs-write": {"is_write_index": True}
+            }
+        }
+    }
+    updated = update_index_template(s, "my_logs_template", patch_body, composable=True)
+    print("Zaktualizowane (merged):", json.dumps(updated, indent=2, ensure_ascii=False))
+
+    # 4) Opcjonalnie: legacy template (dla starszych klastrów)
+    legacy_body = {
+        "index_patterns": ["legacy-*"],
+        "order": 0,
+        "settings": {"number_of_shards": 1},
+        "mappings": {"_source": {"enabled": True}},
+        "aliases": {"legacy-alias": {}},
+        "version": 1
+    }
+    put_index_template(s, "legacy_template_demo", legacy_body, composable=False, create=False)
+    print("Zrobione: replace legacy template 'legacy_template_demo'")
+```
+
+Jeśli chcesz wersję na oficjalnym kliencie Pythona (elasticsearch>=8), też podrzucę — daj znać, którą wersję ES masz (7.x vs 8.x), bo różnią się endpointy i metody w kliencie.
+
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$44
+Oto kompletny kod w Pythonie, podzielony na funkcje, który realizuje Twoje wymagania.
+
+Skrypt wykorzystuje oficjalną bibliotekę klienta **`elasticsearch`**. Jeśli jej nie masz, zainstaluj ją komendą:
+
+```bash
+pip install elasticsearch
+```
+
+### Kod Python
+
+Skrypt obsługuje nowoczesne **Composable Index Templates** (standard w Elasticsearch 7.8+ i 8.x).
+
+```python
+import os
+import json
+from elasticsearch import Elasticsearch, exceptions
+import warnings
+
+# Wyłączenie ostrzeżeń o braku SSL (opcjonalne, przydatne przy lokalnych testach)
+from urllib3.exceptions import InsecureRequestWarning
+warnings.simplefilter('ignore', InsecureRequestWarning)
+
+def connect_to_elasticsearch(host: str, username: str = None, password: str = None, verify_certs: bool = True) -> Elasticsearch:
+    """
+    Nawiązuje połączenie z klastrem Elasticsearch.
+    """
+    try:
+        # Konfiguracja połączenia
+        # Dla ES 8.x używamy basic_auth, dla starszych wersji może być potrzebne http_auth
+        client = Elasticsearch(
+            hosts=[host],
+            basic_auth=(username, password) if username and password else None,
+            verify_certs=verify_certs,
+            ssl_show_warn=verify_certs
+        )
+        
+        # Sprawdzenie połączenia
+        info = client.info()
+        print(f"✅ Połączono z klastrem: {info['cluster_name']} (Wersja: {info['version']['number']})")
+        return client
+        
+    except Exception as e:
+        print(f"❌ Błąd połączenia z Elasticsearch: {e}")
+        return None
+
+def list_index_templates(es_client: Elasticsearch, name_pattern: str = "*"):
+    """
+    Listuje dostępne szablony indeksów (Composable Index Templates).
+    """
+    try:
+        # Pobieranie szablonów
+        response = es_client.indices.get_index_template(name=name_pattern)
+        templates = response.get('index_templates', [])
+
+        if not templates:
+            print(f"ℹ️ Nie znaleziono szablonów pasujących do wzorca: '{name_pattern}'")
+            return
+
+        print(f"\n📋 Lista szablonów ({len(templates)}):")
+        for tmpl in templates:
+            name = tmpl['name']
+            patterns = tmpl['index_template']['index_patterns']
+            print(f" - Nazwa: {name} | Wzorce indeksów: {patterns}")
+            
+        return templates
+
+    except exceptions.NotFoundError:
+        print(f"ℹ️ Nie znaleziono szablonów.")
+    except Exception as e:
+        print(f"❌ Błąd podczas listowania szablonów: {e}")
+
+def create_or_update_template(es_client: Elasticsearch, template_name: str, template_body: dict):
+    """
+    Tworzy nowy szablon lub nadpisuje istniejący (PUT request).
+    W Elasticsearch operacja PUT działa jako "Create or Replace".
+    """
+    try:
+        print(f"\n🔄 Próba aktualizacji/utworzenia szablonu: '{template_name}'...")
+        
+        response = es_client.indices.put_index_template(
+            name=template_name,
+            body=template_body
+        )
+        
+        if response.get('acknowledged'):
+            print(f"✅ Sukces: Szablon '{template_name}' został zaktualizowany/utworzony.")
+        else:
+            print(f"⚠️ Ostrzeżenie: Operacja zakończona, ale brak potwierdzenia 'acknowledged'.")
+            
+    except exceptions.RequestError as e:
+        print(f"❌ Błąd zapytania (zła składnia JSON?): {e}")
+    except Exception as e:
+        print(f"❌ Błąd podczas aktualizacji szablonu: {e}")
+
+# --- PRZYKŁAD UŻYCIA ---
+
+if __name__ == "__main__":
+    # 1. Konfiguracja
+    ES_HOST = "https://localhost:9200"  # Adres klastra
+    ES_USER = "elastic"                 # Użytkownik
+    ES_PASS = "twoje_haslo"             # Hasło (zmienna środowiskowa jest bezpieczniejsza)
+    
+    # 2. Połączenie
+    # verify_certs=False używamy tylko przy self-signed certyfikatach (np. lokalny docker)
+    es = connect_to_elasticsearch(ES_HOST, ES_USER, ES_PASS, verify_certs=False)
+
+    if es:
+        # 3. Wylistowanie obecnych szablonów
+        list_index_templates(es)
+
+        # 4. Definicja nowego szablonu (lub aktualizacja istniejącego)
+        # Przykład prostego szablonu
+        my_template_name = "logs-app-template"
+        my_template_body = {
+            "index_patterns": ["logs-app-*"],
+            "priority": 100,
+            "template": {
+                "settings": {
+                    "number_of_shards": 1,
+                    "number_of_replicas": 1
+                },
+                "mappings": {
+                    "properties": {
+                        "timestamp": {"type": "date"},
+                        "level": {"type": "keyword"},
+                        "message": {"type": "text"}
+                    }
+                }
+            },
+            "_meta": {
+                "description": "Szablon dla logów aplikacji utworzony przez Python"
+            }
+        }
+
+        # 5. Wykonanie aktualizacji/utworzenia
+        create_or_update_template(es, my_template_name, my_template_body)
+
+        # 6. Ponowne wylistowanie, aby potwierdzić zmiany
+        print("\n--- Po aktualizacji ---")
+        list_index_templates(es, name_pattern="logs-app-*")
+```
+
+### Wyjaśnienie kluczowych elementów:
+
+1.  **Biblioteka `elasticsearch`**: Kod jest napisany pod wersję biblioteki 8.x, która jest najbardziej aktualna. Metoda `Elasticsearch(...)` przyjmuje parametry `basic_auth` dla loginu i hasła.
+2.  **`put_index_template`**: Ta metoda API Elasticsearch jest **idempotentna**. Oznacza to, że jeśli szablon o danej nazwie nie istnieje, zostanie utworzony. Jeśli istnieje – zostanie w całości nadpisany nową definicją. Nie ma potrzeby oddzielnych funkcji dla "update" i "create".
+3.  **Composable vs Legacy**: Kod używa endpointów `_index_template` (nowoczesne szablony, które można składać z komponentów). Jeśli używasz bardzo starego Elasticsearcha (wersja 6 lub starsza 7), musiałbyś użyć funkcji `indices.put_template` (tzw. legacy templates).
+4.  **Bezpieczeństwo SSL**: W przykładzie ustawiłem `verify_certs=False`, co jest typowe przy pracy z lokalnym Dockerem i certyfikatami self-signed. Na produkcji należy zmienić to na `True` lub podać ścieżkę do pliku CA.
+55555555555555555555555555555555555555555555555555555555555
+
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources: []  # nie dodajemy zasobów; używamy tylko patchy na tym, co wyrenderuje Helm
