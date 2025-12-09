@@ -1,0 +1,78 @@
+Socket timeout w Logstash zwykle znaczy: Logstash wysłał żądanie do Elasticsearch i nie dostał odpowiedzi w czasie (Manticore::SocketTimeout). Najczęstsze przyczyny: przeciążony ES (CPU/GC/dysk), kolejki w thread poolach, wąskie gardła na LB/proxy, albo zbyt duże/ciężkie bulki.
+
+Poniżej szybka checklista: co sprawdzić i jak to zinterpretować.
+
+Szybka diagnoza z hosta Logstash
+- Zmierz connect i time-to-first-byte:
+  curl -u user:pass -sS -o /dev/null -w 'connect=%{time_connect}s ttfb=%{time_starttransfer}s total=%{time_total}s code=%{http_code}\n' https://ES:9200/_cluster/health?timeout=10s
+  - connect duży -> DNS/sieć/LB/firewall.
+  - ttfb duży lub timeout -> ES nie nadąża lub coś po drodze ucina/przetrzymuje.
+- Jeśli masz LB/proxy (NGINX/ALB/HAProxy): porównaj wyniki bezpośrednio na port 9200 węzła vs przez LB. Częsty winny: zbyt krótki idle/proxy_read_timeout.
+
+Co sprawdzić po stronie Elasticsearch (API)
+- Ogólne zdrowie/obciążenie:
+  GET _cat/nodes?v&h=name,ip,role,heap.percent,ram.percent,cpu,load_1m,fs.used_percent,http.current_open,master
+  Szukaj: heap.percent > 85, cpu ~100, fs.used_percent bardzo wysoki, tysiące http.current_open.
+- Kolejki i odrzucenia (backpressure):
+  GET _cat/thread_pool/write?v&h=node_name,name,active,queue,rejected
+  Jeśli queue > 0 lub rosnące rejected > 0, węzeł nie nadąża z indeksowaniem.
+  Dodatkowo: GET _cat/thread_pool/ingest?v oraz search, bulk (w zależności od wersji).
+- Statystyki węzłów (szczegóły):
+  GET _nodes/stats/jvm,os,process,fs,indices,thread_pool,http,ingest?pretty
+  - jvm.mem.heap_used_percent, długie jvm.gc.collectors.old.collection_time_in_millis
+  - os.cpu.load_average i iowait (jeśli wysoki → dysk wąskie gardło)
+  - http.current_open, http.total_opened (czy nie ma wycieków połączeń)
+  - indices.indexing.* (czy index_current stale wysokie)
+  - ingest.total i pipelines.*.metrics (czy ingest pipeline’y nie dławią)
+- Gorące wątki (czy coś „mieli” CPU):
+  GET _nodes/hot_threads?threads=3&ignore_idle_threads=true
+- Zadania w kolejce klastra:
+  GET _cluster/pending_tasks
+- Logi Elasticsearch na węzłach
+  Szukaj: CircuitBreakingException, rejected execution, flood-stage disk watermark, long GC, failed to parse pipeline, rejecting mapping update, 429/EsRejectedExecutionException.
+
+Typowe przyczyny i szybkie działania
+- Kolejki write/ingest pełne, rejected > 0:
+  - Zmniejsz rozmiar bulk (w Logstash: zmniejsz batch/bulk_max_size), więcej mniejszych żądań.
+  - Rozłóż ruch na więcej węzłów (hosts => ["es1","es2","es3"]).
+  - Skaluj zasoby/liczbę data/ingest nodes. Krótkoterminowo można zwiększyć queue_size dla thread_pool.write, ale lepiej usunąć przyczynę.
+- Wysokie GC/heap:
+  - Upewnij się, że Xms = Xmx i nie więcej niż ~50% RAM, bez swapu.
+  - Ogranicz liczbę pól/mapping explosions, przemyśl dynamic_templates.
+  - Rozważ podniesienie refresh_interval na indeksach przy ciężkim indeksowaniu (np. 10–30s) i replik 0 podczas masowego załadowania.
+- I/O dyskowe wąskie gardło:
+  - SSD, więcej IOPS, ogranicz liczbę shardów (za dużo shardów = dużo merge).
+  - Sprawdź czy nie ma flood-stage disk watermark (wtedy indeksowanie może być blokowane).
+- Ingest pipeline’y ciężkie:
+  - Profiluj pipelines (GET _nodes/stats/ingest), przenieś cięższe transformacje do Logstash, cache’uj grok/kv jeśli możliwe, upraszczaj painless.
+- Za dużo lub zrywane połączenia HTTP:
+  - W Logstash rozważ: pool_max, pool_max_per_route, podaj wiele hosts. Upewnij się, że keepalive nie gryzie się z LB (zwiększ idle/proxy_read_timeout na LB).
+- LB/proxy timeouts:
+  - NGINX: proxy_read_timeout, proxy_send_timeout > request_timeout Logstasha.
+  - ALB/ELB: podnieś Idle timeout.
+- Blokady klastra:
+  - Sprawdź, czy indeksy nie są read-only (po flood-stage): GET _all/_settings/index.blocks*.
+
+Tuning po stronie Logstash (przykłady)
+- Wydłuż timeout na odpowiedź gdy ES bywa ociężały:
+  request_timeout => 120
+- Zmniejsz batch (skraca czas przetwarzania jednego bulk):
+  bulk_max_size => 200   (wartość dobra na start; dopasuj do środowiska)
+- Rozsądna pula połączeń i wiele hostów:
+  hosts => ["https://es1:9200","https://es2:9200","https://es3:9200"]
+  pool_max => 1000
+  pool_max_per_route => 100
+- Jeśli masz proxy/LB, wyłącz sniffing (żeby nie odkrywał prywatnych adresów):
+  sniffing => false
+
+Jak zdiagnozować na szybko co boli
+- Jeśli curl pokazuje długi connect: sieć/LB.
+- Jeśli connect szybki, a ttfb wolny: ES przeciążony → patrz thread_pool write, GC, IO, ingest.
+- Jeśli są rejected w thread_pool: zmniejsz batch, rozłóż ruch, skaluj ES.
+- Jeśli http.current_open bardzo wysokie i rośnie: tunuj pool w Logstash i/lub LB idle timeout.
+
+Jeśli podeślesz:
+- dokładny log z Logstash (linia z Manticore::SocketTimeout i kilka poprzednich),
+- wynik: _cat/thread_pool/write oraz fragment _nodes/stats (jvm/os/http) z czasu problemu,
+- i czy wchodzisz przez LB/proxy,
+to podpowiem bardziej precyzyjnie co poprawić.
