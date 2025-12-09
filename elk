@@ -1,3 +1,30 @@
+Masz rację — pomyliłem nazwy pól. W 8.14.3:
+
+- W _cat/nodes nie ma fs.used_percent. Szukaj dysku jako disk.used_percent.
+- http.current_open nie jest kolumną w _cat/nodes — to metryka z _nodes/stats (sekcja http).
+
+Podaję poprawne przykłady:
+
+- Użycie dysku per węzeł (prosto i czytelnie)
+  GET _cat/allocation?v&h=node,shards,disk.percent,disk.used,disk.avail,disk.total
+
+- Alternatywnie w _cat/nodes (plus CPU/heap)
+  GET _cat/nodes?v&h=name,ip,node.role,heap.percent,ram.percent,cpu,load_1m,disk.used_percent,master
+
+- Otwarte połączenia HTTP (tu jest http.current_open)
+  GET _nodes/stats/http?filter_path=nodes.*.name,nodes.*.http.current_open,nodes.*.http.total_opened
+
+- Kolejki/odrzucenia (write/bulk/ingest)
+  GET _cat/thread_pool/write,bulk,ingest?v&h=node_name,name,active,queue,rejected
+
+Wskazówka: zawsze możesz podejrzeć dostępne kolumny tak:
+- GET _cat/nodes?help
+- GET _cat/thread_pool?help
+
+Jeśli chcesz, podeślę też gotowy zestaw “kopiuj-wklej” pod konkretny problem (timeouty Logstasha), ale najpierw dobrze mieć te właściwe metryki.
+
+################################3
+
 Socket timeout w Logstash zwykle znaczy: Logstash wysłał żądanie do Elasticsearch i nie dostał odpowiedzi w czasie (Manticore::SocketTimeout). Najczęstsze przyczyny: przeciążony ES (CPU/GC/dysk), kolejki w thread poolach, wąskie gardła na LB/proxy, albo zbyt duże/ciężkie bulki.
 
 Poniżej szybka checklista: co sprawdzić i jak to zinterpretować.
