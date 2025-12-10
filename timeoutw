@@ -1,0 +1,76 @@
+Super wskazówka. Skoro timeout zawsze dotyczy wywołania https://elk1:9200/_ilm/policy/default-moja-ilm, to strzela w nas nie bulk, tylko sprawdzanie/tworzenie polityki ILM przez plugin elasticsearch w Logstashu. Przy starcie każdy pipeline robi GET/PUT tej polityki; przy 140 pipeline’ach i 4 instancjach robi się „szarża” na ILM. Gdy restartujesz instancje po kolei (tylko jedna naraz), problem znika — klasyczny thundering herd.
+
+Co to zwykle znaczy
+- Logstash (każda instancja, każdy pipeline) na starcie sprawdza/zakłada ILM policy i szablony → wiele równoległych żądań do /_ilm/policy.
+- Jeśli w hosts masz tylko elk1, wszystko wali w jeden węzeł.
+- Częste skutki: wolne odpowiedzi z mastera (update stanu klastra), 429/retry na starcie, a w Twoim przypadku socket timeout.
+
+Co zrobić (najskuteczniejsze opcje)
+1) Zmniejsz „uderzenie” na starcie (najszybsza ulga)
+- Obniż równoległość:
+  - pipeline.workers: 1–2
+  - pipeline.batch.size: 150–200
+- Rolling restart tylko po jednej instancji naraz (już stosujesz, trzymaj się tego).
+- Dodaj do output:
+  - sniffing => false
+  - request_timeout => 180–300
+  - http_compression => true
+  - hosts => lista 4–6 frontów (coordinating/ingest), a nie tylko elk1
+
+2) Przestań „instalować” ILM z Logstasha na każdym pipeline
+- Pre‑utwórz politykę ILM w ES i nie pozwól Logstashowi jej nadpisywać:
+  PUT /_ilm/policy/default-moja-ilm
+  {
+    "policy": {
+      "phases": {
+        "hot":   { "actions": { "rollover": { "max_primary_shard_size": "50gb", "max_age": "7d" } } },
+        "warm":  { "min_age": "30d", "actions": { "forcemerge": { "max_num_segments": 1 } } },
+        "delete":{ "min_age": "90d", "actions": { "delete": {} } }
+      }
+    }
+  }
+- W Logstash output ustaw:
+  ilm_enabled => true
+  ilm_policy => "default-moja-ilm"
+  ilm_policy_overwrite => false
+  (opcjonalnie manage_template => false, jeśli szablony masz już w ES)
+To powoduje, że plugin sprawdzi istnienie polityki i NIC nie będzie próbował tworzyć/aktualizować.
+
+3) Albo całkiem wyłącz ILM po stronie Logstasha
+- Jeśli używasz indeksów dobowych i nie potrzebujesz rollovera:
+  ilm_enabled => false
+  index => "twoj-indeks-%{+YYYY.MM.dd}"
+To całkowicie eliminuje wywołania /_ilm/policy z Logstasha.
+
+4) Zastosuj pipeline‑to‑pipeline (fan‑in)
+- Wiele pipeline’ów wysyła do jednej „agregującej” pipeline, która ma JEDEN output do ES.
+- Zamiast 35× (per instancję) sprawdzeń ILM na starcie masz 1×. Mniej socketów, lepszy reuse. (Wcześniej podałem gotową konfigurację — to najczyściej rozwiązuje takie startowe „szczyty”.)
+
+Dodatkowe kontrole
+- Sprawdź politykę ręcznie i porównaj węzły:
+  time curl -u user:pass -sS https://elk1:9200/_ilm/policy/default-moja-ilm > /dev/null
+  time curl -u user:pass -sS https://INNY-WĘZEŁ:9200/_ilm/policy/default-moja-ilm > /dev/null
+Jeśli tylko elk1 jest wolny — rozłóż hosts na kilka nodów albo użyj LB.
+
+- Zobacz, czy Logstash faktycznie używa ILM:
+  grep -R "ilm_" /etc/logstash/conf.d
+
+- Na ES w momencie startu wielu LS:
+  GET _cluster/pending_tasks
+  GET _nodes/stats/http?filter_path=nodes.*.http.current_open,nodes.*.http.total_opened
+  Jeśli pending_tasks skacze, a total_opened rośnie lawinowo — to właśnie „szarża” na start.
+
+Szybka konfiguracja, która zwykle „ucisza” ten problem
+- W Logstash output (każdy pipeline):
+  elasticsearch {
+    hosts => ["https://es-front1:9200","https://es-front2:9200","https://es-front3:9200","https://es-front4:9200"]
+    sniffing => false
+    request_timeout => 180
+    http_compression => true
+    ilm_enabled => true
+    ilm_policy => "default-moja-ilm"
+    ilm_policy_overwrite => false
+  }
+- I koniecznie rolling restart: jedna instancja naraz.
+
+Jeśli chcesz, podeślij fragment swojej konfiguracji output (sekcja ILM, hosts) — zweryfikuję, czy plugin nie próbuje za każdym razem „tworzyć domyślnej” polityki (prefiks default- wskazuje, że mógł). Możemy też od razu rozpisać pre‑tworzenie ILM + index template/alias, żeby Logstash tylko pisał, a nie „zarządzał” metadanymi.
