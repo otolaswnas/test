@@ -1,29 +1,18 @@
-/opt/kafka/logs/*.log.2* {
-    daily
-    rotate 0
-    maxage 5
-    compress
-    missingok
-    notifempty
-    nocreate
-    nocopytruncate
-}
-
-
 /opt/kafka/logs/*.log.[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] {
     daily
     rotate 0
     compress
     missingok
+    notifempty
     nocreate
 }
 
-
-/opt/kafka/logs/*.log.*.gz {
+# Usuń skompresowane logi starsze niż 5 dni: *.log.YYYY-MM-DD.gz
+/opt/kafka/logs/*.log.[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].gz {
     daily
     rotate 0
     maxage 5
     missingok
+    notifempty
     nocreate
-    nocopytruncate
 }
