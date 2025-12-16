@@ -17,3 +17,13 @@
     missingok
     nocreate
 }
+
+
+/opt/kafka/logs/*.log.*.gz {
+    daily
+    rotate 0
+    maxage 5
+    missingok
+    nocreate
+    nocopytruncate
+}
