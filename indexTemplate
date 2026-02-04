@@ -4,91 +4,80 @@ from datetime import datetime
 from json import JSONDecodeError
 
 def run_elk_template_manager(wrapper_obj):
-    """
-    Krok 1: Backup wszystkich szablonów z ELK do folderu backup/data_godzina
-    Krok 2: Import/Aktualizacja szablonów z podfolderów (pomijając folder backup)
-    """
     es_client = wrapper_obj.client
     base_dir = "indexTemplate"
     backup_base_dir = os.path.join(base_dir, "backup")
     
-    # --- PRZYGOTOWANIE STRUKTURY ---
-    if not os.path.exists(base_dir):
-        os.makedirs(base_dir)
-    if not os.path.exists(backup_base_dir):
-        os.makedirs(backup_base_dir)
-
-    # --- KROK 1: BACKUP AKTUALNEGO STANU KLASTRA ---
+    # --- KROK 1: BACKUP (Z OCZYSZCZANIEM) ---
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     current_backup_path = os.path.join(backup_base_dir, f"backup_{timestamp}")
     
-    print(f"--- KROK 1: Backup klaster -> {current_backup_path} ---")
+    print(f"--- KROK 1: Backup (format gotowy do importu) ---")
     try:
         if not os.path.exists(current_backup_path):
             os.makedirs(current_backup_path)
 
-        # Pobranie szablonów (v8 Composable Templates)
         response = es_client.indices.get_index_template()
         current_templates = response.get('index_templates', [])
         
         for item in current_templates:
             name = item['name']
-            content = item['index_template']
+            # Pobieramy czystą definicję szablonu
+            raw_content = item['index_template']
+            
+            # USUWANIE POLI SYSTEMOWYCH, KTÓRE BLOKUJĄ IMPORT
+            # Pozostawiamy tylko klucze akceptowane przez put_index_template
+            clean_content = {
+                "index_patterns": raw_content.get("index_patterns"),
+                "template": raw_content.get("template"),
+                "composed_of": raw_content.get("composed_of"),
+                "priority": raw_content.get("priority"),
+                "version": raw_content.get("version"),
+                "_meta": raw_content.get("_meta")
+            }
+            # Usuwamy klucze, które są None (np. jeśli nie ma composed_of)
+            clean_content = {k: v for k, v in clean_content.items() if v is not None}
+
             file_path = os.path.join(current_backup_path, f"{name}.json")
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(content, f, indent=4, ensure_ascii=False)
+                json.dump(clean_content, f, indent=4, ensure_ascii=False)
         
-        print(f"Pomyślnie zarchiwizowano {len(current_templates)} szablonów.")
+        print(f"Zarchiwizowano {len(current_templates)} szablonów.")
     except Exception as e:
-        print(f"BŁĄD KRYTYCZNY BACKUPU: {e}")
-        return # Przerywamy, aby nie nadpisać niczego bez posiadania kopii
+        print(f"BŁĄD BACKUPU: {e}")
+        return
 
-    # --- KROK 2: AKTUALIZACJA Z PLIKÓW LOKALNYCH ---
-    print(f"\n--- KROK 2: Aktualizacja z podfolderów (pomijając backup) ---")
-    stats = {"success": 0, "errors": 0, "skipped": 0}
+    # --- KROK 2: IMPORT/UPDATE ---
+    print(f"\n--- KROK 2: Aktualizacja z podfolderów ---")
+    stats = {"success": 0, "errors": 0}
 
     for root, dirs, files in os.walk(base_dir):
-        # Ignoruj folder backup i wszystkie jego podfoldery
         if root.startswith(backup_base_dir):
             continue
 
         for filename in files:
-            # Przetwarzaj tylko pliki .json
             if not filename.endswith(".json"):
                 continue
 
             file_path = os.path.join(root, filename)
             template_name = filename.replace(".json", "")
-            team_name = os.path.basename(root)
 
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     template_body = json.load(f)
 
-                # Wysłanie do ELK (Update/Create)
+                # Wersja 8.19 wymaga poprawnego body
                 es_client.indices.put_index_template(
                     name=template_name,
-                    index_template=template_body
+                    index_template=template_body # Klient sam przekaże body do API
                 )
-                
-                print(f"[OK] Zaktualizowano: {template_name} (Folder: {team_name})")
+                print(f"[OK] {template_name}")
                 stats["success"] += 1
 
-            except JSONDecodeError:
-                print(f"[BŁĄD] Plik {filename} w {team_name} nie jest poprawnym JSON!")
-                stats["errors"] += 1
             except Exception as e:
-                print(f"[BŁĄD] {template_name} (API Error): {e}")
+                print(f"[BŁĄD] {template_name}: {e}")
                 stats["errors"] += 1
 
-    # --- PODSUMOWANIE ---
-    print(f"\n--- RAPORT KOŃCOWY ---")
-    print(f"Data wykonania: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Aktualizacje zakończone sukcesem: {stats['success']}")
-    print(f"Błędy (pominięte pliki):          {stats['errors']}")
-    
-    if stats["success"] == 0 and stats["errors"] == 0:
-        print("Informacja: Nie znaleziono żadnych nowych plików .json do zaimportowania poza folderem backup.")
+    print(f"\nGotowe. Sukcesy: {stats['success']}, Błędy: {stats['errors']}")
 
-# Wywołanie skryptu
 # run_elk_template_manager(es)
