@@ -8,6 +8,114 @@ def run_elk_template_manager(wrapper_obj):
     base_dir = "indexTemplate"
     backup_base_dir = os.path.join(base_dir, "backup")
     
+    if not os.path.exists(backup_base_dir):
+        os.makedirs(backup_base_dir)
+
+    # --- KROK 1: BACKUP I ANALIZA OBECNEGO STANU ---
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    current_backup_path = os.path.join(backup_base_dir, f"backup_{timestamp}")
+    
+    # Słownik do szybkiego porównywania: { "nazwa_szablonu": {body_z_es} }
+    online_templates_cache = {}
+    
+    print(f"--- KROK 1: Backup i analiza różnic ---")
+    try:
+        os.makedirs(current_backup_path, exist_ok=True)
+        response = es_client.indices.get_index_template()
+        current_templates = response.get('index_templates', [])
+        
+        for item in current_templates:
+            name = item['name']
+            raw_content = item['index_template']
+            
+            clean_body = {
+                "index_patterns": raw_content.get("index_patterns"),
+                "template": raw_content.get("template"),
+                "composed_of": raw_content.get("composed_of"),
+                "priority": raw_content.get("priority"),
+                "version": raw_content.get("version"),
+                "_meta": raw_content.get("_meta")
+            }
+            clean_body = {k: v for k, v in clean_body.items() if v is not None}
+            
+            # Zapisujemy do cache do późniejszego porównania
+            online_templates_cache[name] = clean_body
+
+            # Zapis fizyczny backupu
+            file_path = os.path.join(current_backup_path, f"{name}.json")
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(clean_body, f, indent=4, ensure_ascii=False)
+        
+        print(f"Zarchiwizowano {len(current_templates)} szablonów.")
+    except Exception as e:
+        print(f"BŁĄD BACKUPU: {e}")
+        return
+
+    # --- KROK 2: INTELIGENTNY UPDATE ---
+    print(f"\n--- KROK 2: Aktualizacja (Tylko zmiany) ---")
+    stats = {"success": 0, "errors": 0, "skipped": 0}
+
+    for root, dirs, files in os.walk(base_dir):
+        if root.startswith(backup_base_dir):
+            continue
+
+        for filename in files:
+            if not filename.endswith(".json"):
+                continue
+
+            file_path = os.path.join(root, filename)
+            template_name = filename.replace(".json", "")
+
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    local_body = json.load(f)
+
+                # LOGIKA PORÓWNANIA:
+                # 1. Sprawdzamy czy szablon istnieje w ogóle w ES
+                # 2. Porównujemy znormalizowane stringi JSON (ignorujemy spacje/formatowanie)
+                online_body = online_templates_cache.get(template_name)
+                
+                if online_body:
+                    # Sort_keys jest kluczowe, by kolejność pól nie wpłynęła na wynik
+                    local_json_str = json.dumps(local_body, sort_keys=True)
+                    online_json_str = json.dumps(online_body, sort_keys=True)
+                    
+                    if local_json_str == online_json_str:
+                        print(f"[SKIP] {template_name} (identyczny)")
+                        stats["skipped"] += 1
+                        continue
+
+                # Jeśli nie ma w cache lub się różni -> WGRYWAMY
+                es_client.indices.put_index_template(
+                    name=template_name,
+                    body=local_body
+                )
+                print(f"[UPDATE/NEW] {template_name}")
+                stats["success"] += 1
+
+            except JSONDecodeError:
+                print(f"[BŁĄD] JSON w {file_path}")
+                stats["errors"] += 1
+            except Exception as e:
+                print(f"[BŁĄD] API w {template_name}: {e}")
+                stats["errors"] += 1
+
+    print(f"\nZakończono. Sukcesy: {stats['success']}, Pominięto: {stats['skipped']}, Błędy: {stats['errors']}")
+
+
+
+################3
+
+import os
+import json
+from datetime import datetime
+from json import JSONDecodeError
+
+def run_elk_template_manager(wrapper_obj):
+    es_client = wrapper_obj.client
+    base_dir = "indexTemplate"
+    backup_base_dir = os.path.join(base_dir, "backup")
+    
     # --- PRZYGOTOWANIE ---
     if not os.path.exists(backup_base_dir):
         os.makedirs(backup_base_dir)
