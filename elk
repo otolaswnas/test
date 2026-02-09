@@ -1,3 +1,10 @@
+    monitoring:
+      enabled: true
+      http:
+        enabled: true
+        host: 0.0.0.0
+        port: 8888
+4444444444444444
 Masz rację — pomyliłem nazwy pól. W 8.14.3:
 
 - W _cat/nodes nie ma fs.used_percent. Szukaj dysku jako disk.used_percent.
