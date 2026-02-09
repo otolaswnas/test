@@ -1,4 +1,14 @@
-    monitoring:
+# Sekcja 1: Otwiera port 8888 (Serwer HTTP)
+http.enabled: true
+http.host: "0.0.0.0"
+http.port: 8888
+
+# Sekcja 2: Włącza format Prometheus (Wspólne dla wszystkich Beats 8.x)
+monitoring.metrics.prometheus.enabled: true
+(((((((((((((((((((((((((
+
+
+monitoring:
       enabled: true
       http:
         enabled: true
