@@ -1,3 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metricbeat
+  labels:
+    app: metricbeat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metricbeat
+  template:
+    metadata:
+      labels:
+        app: metricbeat
+    spec:
+      containers:
+        - name: metricbeat
+          image: docker.elastic.co/beats/metricbeat:8.12.0
+          args: ["-e"]
+          ports:
+            - containerPort: 8888
+              name: metrics
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/metricbeat/metricbeat.yml
+              subPath: metricbeat.yml
+      volumes:
+        - name: config
+          configMap:
+            name: metricbeat-config
+
+------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metricbeat-config
+data:
+  metricbeat.yml: |
+    metricbeat.modules:
+      - module: http
+        metricsets: ["json"]
+        hosts: ["http://apm-server:8888/stats"]
+        namespace: "apmserver"
+        period: 10s
+
+    output.prometheus:
+      enabled: true
+      host: "0.0.0.0"
+      port: 8888
+
+
+-----------------------------------------
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metricbeat
+  labels:
+    app: metricbeat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metricbeat
+  template:
+    metadata:
+      labels:
+        app: metricbeat
+    spec:
+      containers:
+        - name: metricbeat
+          image: docker.elastic.co/beats/metricbeat:8.12.0
+          args: ["-e"]
+          ports:
+            - containerPort: 8888
+              name: metrics
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/metricbeat/metricbeat.yml
+              subPath: metricbeat.yml
+      volumes:
+        - name: config
+          configMap:
+            name: metricbeat-config
+
+
+
+
 # Sekcja 1: Otwiera port 8888 (Serwer HTTP)
 http.enabled: true
 http.host: "0.0.0.0"
