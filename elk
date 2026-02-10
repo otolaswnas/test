@@ -1,4 +1,35 @@
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      # Pobieramy JSON z APM Servera
+      httpcheck:
+        targets:
+          - endpoint: "http://apm-server:8888/stats"
+        method: GET
+        collection_interval: 10s
+
+    processors:
+      batch: {}
+
+    exporters:
+      prometheus:
+        endpoint: "0.0.0.0:8888"
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [httpcheck]
+          processors: [batch]
+          exporters: [prometheus]
+
+
+@@@@@@@@@@@@@@@@@@@@2
+
+apiVersion: v1
 kind: Service
 metadata:
   name: otel-collector
