@@ -5,6 +5,50 @@ metadata:
 data:
   otel-collector-config.yaml: |
     receivers:
+      http:
+        endpoint: "0.0.0.0:9000"
+        include_metadata: false
+
+    processors:
+      json_parser:
+        parse_from: body
+        parse_to: attributes
+        if: 'body matches "^\\{"'
+
+      transform:
+        metric_statements:
+          - context: datapoint
+            statements:
+              - set(metric.name, "apmserver_" + attributes["key"]) where attributes["value"] != nil
+              - set(metric.value_double, attributes["value"]) where attributes["value"] != nil
+
+      batch: {}
+
+    exporters:
+      prometheus:
+        endpoint: "0.0.0.0:8888"
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [http]
+          processors: [json_parser, transform, batch]
+          exporters: [prometheus]
+
+
+
+
+
+
+##################################################33
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+data:
+  otel-collector-config.yaml: |
+    receivers:
       # Pobieramy JSON z APM Servera
       httpcheck:
         targets:
