@@ -1,4 +1,40 @@
+import requests
+from flask import Flask
+from waitress import serve # Dodaj to
 
+app = Flask(__name__)
+
+def flatten_json(y, prefix=''):
+    out = {}
+    def flatten(x, name=''):
+        if isinstance(x, dict):
+            for a in x:
+                flatten(x[a], name + a + '_')
+        elif isinstance(x, (int, float, bool)):
+            out[name[:-1]] = x
+    flatten(y, prefix)
+    return out
+
+@app.route("/metrics")
+def metrics():
+    try:
+        # Pamiętaj o poprawnej nazwie serwisu APM
+        r = requests.get("http://apm-server:8888/stats", timeout=5)
+        data = flatten_json(r.json())
+        output = []
+        for key, value in data.items():
+            clean_key = key.replace(".", "_").replace("-", "_")
+            output.append(f"apm_stat_{clean_key} {float(value)}")
+        return "\n".join(output), 200, {"Content-Type": "text/plain"}
+    except Exception as e:
+        return f"# Error: {str(e)}", 500
+
+if __name__ == "__main__":
+    # Użycie Waitress zamiast app.run() usuwa ostrzeżenie i jest bezpieczniejsze
+    serve(app, host="0.0.0.0", port=8888)
+
+
+$$$$$$$$$$$$$$$$$$$$$$$$$$$
 import requests
 from flask import Flask
 
