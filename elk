@@ -1,3 +1,43 @@
+
+import requests
+from flask import Flask
+
+app = Flask(__name__)
+
+def flatten_json(y):
+    out = {}
+    def flatten(x, name=''):
+        if type(x) is dict:
+            for a in x:
+                flatten(x[a], name + a + '_')
+        else:
+            out[name[:-1]] = x
+    flatten(y)
+    return out
+
+@app.route("/metrics")
+def metrics():
+    try:
+        # Zmień 'apm-server' na nazwę swojego Serwisu APM w OCP
+        r = requests.get("http://apm-server:8888/stats", timeout=5)
+        data = flatten_json(r.json())
+        prometheus_metrics = []
+        for key, value in data.items():
+            if isinstance(value, (int, float, bool)):
+                # Czyścimy nazwy pod format Prometheusa
+                clean_key = key.replace(".", "_").replace("-", "_")
+                prometheus_metrics.append(f"apm_stat_{clean_key} {float(value)}")
+        return "\n".join(prometheus_metrics), 200, {"Content-Type": "text/plain"}
+    except Exception as e:
+        return f"# Error: {str(e)}", 500
+
+if __name__ == "__main__":
+    # Musi być 0.0.0.0, żeby OCP widział kontener
+    app.run(host="0.0.0.0", port=8888)
+
+
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+
 apiVersion: v1
 kind: Service
 metadata:
