@@ -1,3 +1,65 @@
+import requests
+import logging
+import sys
+from flask import Flask
+from waitress import serve
+
+# Konfiguracja logowania do stdout (widoczne w oc logs)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+
+def flatten_json(y):
+    out = {}
+    def flatten(x, name=''):
+        if isinstance(x, dict):
+            for a in x:
+                flatten(x[a], name + a + '_')
+        else:
+            out[name[:-1]] = x
+    flatten(y)
+    return out
+
+@app.route("/metrics")
+def metrics():
+    target_url = "http://apm-server:8888/stats"
+    try:
+        logger.info(f"Scraping metrics from {target_url}")
+        r = requests.get(target_url, timeout=5)
+        r.raise_for_status() # Rzuć błąd jeśli status != 200
+        
+        data = flatten_json(r.json())
+        output = []
+        for key, value in data.items():
+            if isinstance(value, (int, float, bool)):
+                clean_key = key.replace(".", "_").replace("-", "_")
+                output.append(f"apm_stat_{clean_key} {float(value)}")
+        
+        logger.info(f"Successfully exported {len(output)} metrics")
+        return "\n".join(output), 200, {"Content-Type": "text/plain"}
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error connecting to APM Server: {e}")
+        return f"# Error reaching APM Server: {str(e)}", 500
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        return f"# Internal Error: {str(e)}", 500
+
+@app.route("/healthz")
+def health():
+    return "OK", 200
+
+if __name__ == "__main__":
+    logger.info("Starting APM JSON Exporter on port 8888")
+    serve(app, host="0.0.0.0", port=8888)
+
+
+################################################################333
 {
   "annotations": { "list": [ { "builtIn": 1, "datasource": "-- Grafana --", "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard" } ] },
   "editable": true, "fiscalYearStartMonth": 0, "graphTooltip": 0, "links": [], "liveNow": false,
