@@ -1,3 +1,41 @@
+@app.route("/healthz")
+def health():
+    target_url = "http://apm-server:8888/stats"
+    try:
+        # Wykonujemy tylko szybkie zapytanie HEAD lub GET z krótkim timeoutem
+        r = requests.get(target_url, timeout=2)
+        r.raise_for_status()
+        return "OK - APM Server reachable", 200
+    except Exception as e:
+        logger.warning(f"Healthcheck failed: APM Server at {target_url} is unreachable: {e}")
+        return "Service Unavailable - APM Server down", 503
+
+###################################
+
+# Sonda gotowości: Sprawdza czy APM Server odpowiada
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 10 # Daj APM Serverowi 10s na start
+            periodSeconds: 10       # Sprawdzaj co 10s
+            failureThreshold: 3     # Wyłącz ruch po 3 nieudanych próbach
+          
+          # Sonda życia: Sprawdza tylko czy sam proces Pythona nie zawisł
+          livenessProbe:
+            httpGet:
+              path: /healthz # Możesz użyć tego samego endpointu lub stworzyć osobny /alive
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
+
+
+
+$$$$$$$$$$$$$$$$$$$$$$$
+
+
+
 import requests
 import logging
 import sys
