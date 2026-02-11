@@ -1,3 +1,41 @@
+{
+  "annotations": { "list": [ { "builtIn": 1, "datasource": "-- Grafana --", "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard" } ] },
+  "editable": true, "fiscalYearStartMonth": 0, "graphTooltip": 0, "links": [], "liveNow": false,
+  "panels": [
+    {
+      "title": "Kafka Output Status (Acked Events)",
+      "type": "gauge", "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "targets": [ { "expr": "sum(rate(apm_stat_metrics_libbeat_output_events_acked[1m]))", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "min": 0, "unit": "reqps", "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 0.1 } ] } } }
+    },
+    {
+      "title": "Internal Pipeline Queue (Backpressure)",
+      "type": "timeseries", "gridPos": { "h": 8, "w": 9, "x": 6, "y": 0 },
+      "targets": [ { "expr": "apm_stat_metrics_libbeat_pipeline_events_active", "legendFormat": "Events in Memory", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 20 }, "unit": "short" } }
+    },
+    {
+      "title": "Kafka Errors (Failed Events)",
+      "type": "timeseries", "gridPos": { "h": 8, "w": 9, "x": 15, "y": 0 },
+      "targets": [ { "expr": "sum(rate(apm_stat_metrics_libbeat_output_events_failed[1m]))", "legendFormat": "Errors/s", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "red" }, "unit": "reqps" } }
+    },
+    {
+      "title": "Input (Apps) vs Output (Kafka)",
+      "type": "timeseries", "gridPos": { "h": 10, "w": 24, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "sum(rate(apm_stat_metrics_apm_server_processor_events_accepted[1m]))", "legendFormat": "Accepted from Apps", "refId": "A" },
+        { "expr": "sum(rate(apm_stat_metrics_libbeat_output_events_acked[1m]))", "legendFormat": "Written to Kafka", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2 }, "unit": "reqps" } }
+    }
+  ],
+  "refresh": "10s", "schemaVersion": 36, "style": "dark", "tags": ["apm", "kafka", "ocp"], "templating": { "list": [] }, "time": { "from": "now-1h", "to": "now" }, "title": "APM Server to Kafka Pipeline", "uid": "apm_kafka_monitor"
+}
+
+
+########################3
+
 import requests
 from flask import Flask
 from waitress import serve # Dodaj to
