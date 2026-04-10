@@ -1,3 +1,78 @@
+W tej architekturze ApplicationSet z generatorem typu Matrix jest rozwiązaniem idealnym. Pozwoli Ci on "pomnożyć" konfigurację: (Liczba klastrów) × (Liczba instancji agenta na klaster).
+Oto jak to sformatować profesjonalnie, wykorzystując Twój "hack" z customowym presetem dla kontroli nazw.
+## 1. Struktura repozytorium Config (GitLab)
+Aby to działało automatycznie, zorganizuj repozytorium konfiguracji w ten sposób:
+
+/clusters/
+  /cluster-prod-01/
+    /agent-synthetics-internal/
+      values.yaml  # Tu np. polityka APM 1, preset: internal
+    /agent-synthetics-external/
+      values.yaml  # Tu np. polityka APM 2, preset: external
+
+## 2. Manifest ApplicationSet (w repo Template)
+Używamy generatora Git, który skanuje foldery. Argo CD stworzy osobną Application dla każdego podfolderu, który znajdzie w /clusters/.
+
+apiVersion: argoproj.io/v1alpha1kind: ApplicationSetmetadata:
+  name: elastic-agents-fleet
+  namespace: argocdspec:
+  generators:
+    - git:
+        repoURL: 'https://gitlab.com'
+        revision: HEAD
+        directories:
+          - path: clusters/*/*  # Szuka w: /cluster-name/agent-instance-name/
+  template:
+    metadata:
+      name: '{{index .path.segments 1}}-{{index .path.segments 2}}' # np. cluster-prod-01-agent-internal
+    spec:
+      project: default
+      source:
+        repoURL: 'https://github.com' # Oficjalny Chart
+        targetRevision: v8.19.0
+        path: deploy/helm/elastic-agent
+        helm:
+          valueFiles:
+            - 'https://gitlab.com/{{.path.path}}/values.yaml'
+      destination:
+        server: https://default.svc # Tu możesz użyć zmiennej dla wielu klastrów
+        namespace: elastic-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+
+## 3. Konfiguracja values.yaml (dla różnych polityk APM)
+Dla każdej instancji w repozytorium Config przygotowujesz osobny plik. Dzięki Twojemu odkryciu z presetem, każda instancja będzie miała unikalne nazwy podów.
+Przykład dla agent-synthetics-internal/values.yaml:
+
+# Twój hack na nazwępresets:
+  internalSynthetics: # Unikalny klucz presetu dla tej instancji
+    enabled: true
+fullnameOverride: "agent-internal"
+fleet:
+  enabled: true
+  fleetServerUrl: "https://example.com"
+  secretName: "vault-token-internal" # Inny sekret z Vaulta dla tej polityki
+
+## Dlaczego to rozwiązuje Twój problem?
+
+   1. Izolacja polityk: Każdy Agent (Deployment) łączy się z Fleetem z innym tokenem, więc automatycznie przypisuje się do innej Fleet Policy (i tym samym innej konfiguracji APM/Synthetics).
+   2. Unikalne nazwy: Nawet w tym samym namespace, dzięki fullnameOverride i różnym nazwom presetów, pody nie będą na siebie nachodzić (np. agent-internal-xxx i agent-external-xxx).
+   3. Skalowalność: Jeśli potrzebujesz trzeciego agenta, po prostu tworzysz nowy folder w repo Config. Argo CD sam go "podniesie".
+
+## Co z Vaultem?
+W każdym folderze instancji (obok values.yaml) dorzuć plik ExternalSecret. Argo CD wdroży go razem z agentem, a on pobierze odpowiedni token z Vaulta dla konkretnej polityki APM.
+Czy chcesz, abym dopracował logikę nazewnictwa w ApplicationSet, aby nazwa aplikacji w Argo CD była jeszcze bardziej czytelna?
+
+
+
+
+
+
+
+
+-------------------------------------------------------------------------------------------------------------------
 OK — poniżej gotowe zapytania PromQL do paneli Stat (Grafana 11.4), które pokażą liczbę masterów, workerów i wszystkich nodów per klaster (label: openshiftcluster). Ustaw w panelach:
 - Query options: Instant = ON
 - Value options: Fields = All values, Calculation = Last (not null)
